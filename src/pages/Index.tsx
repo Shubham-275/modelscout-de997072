@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import DashboardHeader from "@/components/DashboardHeader";
 import SearchCommand from "@/components/SearchCommand";
 import TerminalFeed from "@/components/TerminalFeed";
@@ -6,6 +6,7 @@ import TopModelsCard from "@/components/TopModelsCard";
 import BenchmarkChart from "@/components/BenchmarkChart";
 import SourceStatusCard from "@/components/SourceStatusCard";
 import ModelDetailPanel from "@/components/ModelDetailPanel";
+import { supabase } from "@/integrations/supabase/client";
 
 interface LogEntry {
   id: string;
@@ -56,6 +57,7 @@ const Index = () => {
   const [benchmarks, setBenchmarks] = useState<BenchmarkData[]>([]);
   const [selectedModel, setSelectedModel] = useState<ModelDetail | null>(null);
   const [showModelDetail, setShowModelDetail] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [sources, setSources] = useState<SourceStatus[]>([
     { name: "HuggingFace", url: "huggingface.co/spaces/open-llm-leaderboard", status: "idle" },
@@ -86,7 +88,96 @@ const Index = () => {
     []
   );
 
-  const simulateSearch = useCallback(
+  const parseMinoEvent = useCallback((data: string, query: string) => {
+    try {
+      const parsed = JSON.parse(data);
+      
+      // Handle different event types from Mino
+      if (parsed.type === 'log') {
+        const message = parsed.message || '';
+        
+        // Detect source status from log messages
+        if (message.toLowerCase().includes('huggingface') || message.toLowerCase().includes('hf.co')) {
+          if (message.includes('navigating') || message.includes('connecting')) {
+            updateSourceStatus("HuggingFace", "connecting");
+          } else if (message.includes('fetching') || message.includes('loading')) {
+            updateSourceStatus("HuggingFace", "fetching");
+          } else if (message.includes('found') || message.includes('success')) {
+            updateSourceStatus("HuggingFace", "success");
+          }
+        }
+        if (message.toLowerCase().includes('lmsys') || message.toLowerCase().includes('arena')) {
+          if (message.includes('navigating') || message.includes('connecting')) {
+            updateSourceStatus("LMSYS Arena", "connecting");
+          } else if (message.includes('fetching') || message.includes('loading')) {
+            updateSourceStatus("LMSYS Arena", "fetching");
+          } else if (message.includes('found') || message.includes('success')) {
+            updateSourceStatus("LMSYS Arena", "success");
+          }
+        }
+        if (message.toLowerCase().includes('paperswithcode') || message.toLowerCase().includes('pwc')) {
+          if (message.includes('navigating') || message.includes('connecting')) {
+            updateSourceStatus("PapersWithCode", "connecting");
+          } else if (message.includes('fetching') || message.includes('loading')) {
+            updateSourceStatus("PapersWithCode", "fetching");
+          } else if (message.includes('found') || message.includes('success')) {
+            updateSourceStatus("PapersWithCode", "success");
+          }
+        }
+        
+        // Determine log type from message content
+        let logType: LogEntry["type"] = "info";
+        if (message.includes('error') || message.includes('failed')) {
+          logType = "error";
+        } else if (message.includes('success') || message.includes('found') || message.includes('complete')) {
+          logType = "success";
+        } else if (message.includes('warning')) {
+          logType = "warning";
+        }
+        
+        addLog(logType, message);
+      } else if (parsed.type === 'result' || parsed.type === 'data') {
+        // Handle final results
+        const results = parsed.data || parsed.results || [];
+        if (Array.isArray(results) && results.length > 0) {
+          const models: ModelRanking[] = results.map((r: any, idx: number) => ({
+            rank: r.rank || idx + 1,
+            name: r.model || query,
+            score: r.score || 0,
+            change: "same" as const,
+            source: r.source || "Unknown",
+          }));
+          setTopModels(models);
+
+          // Extract benchmarks from secondary metrics
+          const firstResult = results[0];
+          if (firstResult?.secondary_metrics) {
+            const benchmarkData: BenchmarkData[] = Object.entries(firstResult.secondary_metrics).map(
+              ([name, score]) => ({
+                name,
+                score: Number(score) || 0,
+                maxScore: 100,
+              })
+            );
+            setBenchmarks(benchmarkData);
+          }
+          
+          addLog("success", `Received ${results.length} model results`);
+        }
+      } else if (parsed.type === 'done') {
+        addLog("system", "Search complete. Ready for next query.");
+      } else if (parsed.type === 'error') {
+        addLog("error", parsed.message || "An error occurred");
+      }
+    } catch {
+      // If not JSON, treat as plain text log
+      if (data.trim()) {
+        addLog("info", data);
+      }
+    }
+  }, [addLog, updateSourceStatus]);
+
+  const searchWithMinoAPI = useCallback(
     async (query: string) => {
       setIsSearching(true);
       setSearchedModel(query);
@@ -97,79 +188,91 @@ const Index = () => {
       // Reset sources
       setSources((prev) => prev.map((s) => ({ ...s, status: "idle" as const })));
 
-      // Initial system log
+      // Cancel any existing request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
+
       addLog("system", `Initializing search for "${query}"...`);
-      await new Promise((r) => setTimeout(r, 500));
-
-      // Simulate API connection
       addLog("info", "Connecting to Mino API gateway...");
-      await new Promise((r) => setTimeout(r, 800));
-      addLog("success", "API connection established");
 
-      // HuggingFace
-      updateSourceStatus("HuggingFace", "connecting");
-      addLog("info", "Navigating to HuggingFace Open LLM Leaderboard...");
-      await new Promise((r) => setTimeout(r, 1200));
-      updateSourceStatus("HuggingFace", "fetching");
-      addLog("info", "Detected Gradio table component");
-      addLog("info", "Scanning for model: " + query);
-      await new Promise((r) => setTimeout(r, 1500));
-      updateSourceStatus("HuggingFace", "success");
-      addLog("success", `Found ${query} on HuggingFace (#2 ranked)`);
+      try {
+        const response = await fetch(
+          `https://xctdxbrwsdyazhpybqhk.supabase.co/functions/v1/mino-proxy`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || ''}`,
+            },
+            body: JSON.stringify({
+              model_name: query,
+              sources: ['HuggingFace', 'LMSYS', 'PapersWithCode'],
+            }),
+            signal: abortControllerRef.current.signal,
+          }
+        );
 
-      // LMSYS
-      updateSourceStatus("LMSYS Arena", "connecting");
-      addLog("info", "Connecting to LMSYS Chatbot Arena...");
-      await new Promise((r) => setTimeout(r, 1000));
-      updateSourceStatus("LMSYS Arena", "fetching");
-      addLog("info", "Parsing ELO rankings table...");
-      await new Promise((r) => setTimeout(r, 1200));
-      updateSourceStatus("LMSYS Arena", "success");
-      addLog("success", "Retrieved ELO score: 1287");
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
 
-      // PapersWithCode
-      updateSourceStatus("PapersWithCode", "connecting");
-      addLog("info", "Querying PapersWithCode benchmarks...");
-      await new Promise((r) => setTimeout(r, 800));
-      updateSourceStatus("PapersWithCode", "fetching");
-      addLog("info", "Aggregating benchmark results...");
-      await new Promise((r) => setTimeout(r, 1400));
-      updateSourceStatus("PapersWithCode", "success");
-      addLog("success", "Compiled 3 benchmark scores");
+        addLog("success", "API connection established");
 
-      // Generate mock results
-      addLog("system", "Compiling final results...");
-      await new Promise((r) => setTimeout(r, 600));
+        // Read SSE stream
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error("No response body");
+        }
 
-      const mockModels: ModelRanking[] = [
-        { rank: 1, name: "GPT-4o", score: 92.4, change: "same", source: "OpenAI" },
-        { rank: 2, name: query, score: 89.7, change: "up", source: "Meta" },
-        { rank: 3, name: "Claude 3.5 Sonnet", score: 88.9, change: "down", source: "Anthropic" },
-        { rank: 4, name: "Gemini 1.5 Pro", score: 87.2, change: "same", source: "Google" },
-        { rank: 5, name: "Mistral Large", score: 84.6, change: "up", source: "Mistral AI" },
-      ];
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-      const mockBenchmarks: BenchmarkData[] = [
-        { name: "MMLU", score: 86.8, maxScore: 100 },
-        { name: "GSM8K", score: 92.3, maxScore: 100 },
-        { name: "HumanEval", score: 81.5, maxScore: 100 },
-        { name: "BBH", score: 78.4, maxScore: 100 },
-        { name: "MATH", score: 64.2, maxScore: 100 },
-      ];
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            break;
+          }
 
-      setTopModels(mockModels);
-      setBenchmarks(mockBenchmarks);
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-      addLog("success", `Search complete. Found ${mockModels.length} models.`);
-      addLog("system", "Ready for next query.");
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              parseMinoEvent(data, query);
+            }
+          }
+        }
 
-      setIsSearching(false);
+        // Process remaining buffer
+        if (buffer.startsWith('data: ')) {
+          parseMinoEvent(buffer.slice(6), query);
+        }
+
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          addLog("warning", "Search cancelled");
+        } else {
+          console.error('Mino API error:', error);
+          addLog("error", `API Error: ${error.message}`);
+          
+          // Mark all sources as error
+          setSources((prev) => prev.map((s) => ({ ...s, status: "error" as const })));
+        }
+      } finally {
+        setIsSearching(false);
+      }
     },
-    [addLog, updateSourceStatus]
+    [addLog, parseMinoEvent]
   );
 
   const handleSearch = (query: string) => {
-    simulateSearch(query);
+    searchWithMinoAPI(query);
   };
 
   const handleModelClick = (model: ModelRanking) => {
