@@ -609,17 +609,6 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
-# Import Gemini-powered analyst
-try:
-    from .gemini_analyst import get_gemini_analyst
-    GEMINI_ANALYST_AVAILABLE = True
-    print("[OK] Gemini AI Analyst loaded successfully")
-except ImportError as e:
-    GEMINI_ANALYST_AVAILABLE = False
-    print(f"[WARN] Gemini Analyst import failed: {e}")
-except Exception as e:
-    GEMINI_ANALYST_AVAILABLE = False
-    print(f"[ERROR] Gemini Analyst error: {e}")
 
 # Import Mino-powered analyst
 try:

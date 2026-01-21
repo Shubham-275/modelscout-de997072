@@ -23,12 +23,6 @@ load_dotenv()
 MINO_API_URL = "https://mino.ai/v1/automation/run-sse"
 MINO_API_KEY = os.environ.get("MINO_API_KEY", "")
 
-# =============================================================================
-# GEMINI API CONFIGURATION (FALLBACK)
-# =============================================================================
-
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # =============================================================================
 # THREADPOOLEXECUTOR SETTINGS (MANDATORY)
