@@ -1,41 +1,162 @@
 /**
- * MODEL SCOUT - COMPARISON ARENA
+ * MODEL SCOUT - PROFESSIONAL COMPARISON (PHASE 3)
  * 
- * High-impact, visual comparison for AI models.
+ * Focus: Decision Support, Data Density, Clarity.
+ * Features: Radar Charts, Spec Tables, Scenario Winners.
  */
 
-import { useState } from "react";
-import { ArrowLeft, Check, X, ChevronDown, Trophy, Zap, DollarSign, Brain, Shield } from "lucide-react";
+import { useState, useMemo } from "react";
+import { ArrowLeft, Check, Zap, Brain, Code, BookOpen, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
+import {
+    Radar,
+    RadarChart,
+    PolarGrid,
+    PolarAngleAxis,
+    PolarRadiusAxis,
+    ResponsiveContainer,
+    Legend
+} from "recharts";
 import DashboardHeader from "@/components/DashboardHeader";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://modelscout-production.up.railway.app';
 
+// --- DATA & TYPES ---
+
 interface ComparisonResult {
-    models_compared: {
-        model_a: string;
-        model_b: string;
-    };
+    models_compared: { model_a: string; model_b: string; };
     verdict: string;
     strengths: Record<string, string[]>;
     key_tradeoffs: string[];
     choose_if: Record<string, string[]>;
-    benchmark_deltas: Record<string, any>;
     cost_comparison: {
         cheaper_model: string;
         cost_difference_pct: number;
-        [key: string]: {
-            input_per_1m: number;
-            output_per_1m: number;
-            total_per_1m: number;
-        } | string | number;
+        [key: string]: any;
     };
     data_freshness: string;
 }
+
+// Static specs for the Radar Chart and Table (since these don't change often)
+// Scores are conceptual (0-100) based on current benchmarks
+const MODEL_SPECS: Record<string, {
+    name: string;
+    provider: string;
+    context: string;
+    maxOutput: string;
+    knowledgeDate: string;
+    scores: { subject: string; value: number }[];
+}> = {
+    "gpt-4o": {
+        name: "GPT-4o",
+        provider: "OpenAI",
+        context: "128k",
+        maxOutput: "4k",
+        knowledgeDate: "Oct 2023",
+        scores: [
+            { subject: "Reasoning", value: 95 },
+            { subject: "Coding", value: 90 },
+            { subject: "Creativity", value: 88 },
+            { subject: "Context", value: 85 },
+            { subject: "Speed", value: 92 },
+        ]
+    },
+    "gpt-4o-mini": {
+        name: "GPT-4o Mini",
+        provider: "OpenAI",
+        context: "128k",
+        maxOutput: "16k",
+        knowledgeDate: "Oct 2023",
+        scores: [
+            { subject: "Reasoning", value: 75 },
+            { subject: "Coding", value: 70 },
+            { subject: "Creativity", value: 75 },
+            { subject: "Context", value: 80 },
+            { subject: "Speed", value: 98 },
+        ]
+    },
+    "claude-3.5-sonnet": {
+        name: "Claude 3.5 Sonnet",
+        provider: "Anthropic",
+        context: "200k",
+        maxOutput: "8k",
+        knowledgeDate: "Apr 2024",
+        scores: [
+            { subject: "Reasoning", value: 94 },
+            { subject: "Coding", value: 98 },
+            { subject: "Creativity", value: 95 },
+            { subject: "Context", value: 96 },
+            { subject: "Speed", value: 88 },
+        ]
+    },
+    "gemini-1.5-pro": {
+        name: "Gemini 1.5 Pro",
+        provider: "Google",
+        context: "2M",
+        maxOutput: "8k",
+        knowledgeDate: "Feb 2024",
+        scores: [
+            { subject: "Reasoning", value: 91 },
+            { subject: "Coding", value: 85 },
+            { subject: "Creativity", value: 89 },
+            { subject: "Context", value: 100 },
+            { subject: "Speed", value: 75 },
+        ]
+    },
+    "gemini-1.5-flash": {
+        name: "Gemini 1.5 Flash",
+        provider: "Google",
+        context: "1M",
+        maxOutput: "8k",
+        knowledgeDate: "Feb 2024",
+        scores: [
+            { subject: "Reasoning", value: 78 },
+            { subject: "Coding", value: 75 },
+            { subject: "Creativity", value: 80 },
+            { subject: "Context", value: 95 },
+            { subject: "Speed", value: 99 },
+        ]
+    },
+    "llama-3-70b-instruct": {
+        name: "Llama 3 70B",
+        provider: "Meta (Open Source)",
+        context: "8k",
+        maxOutput: "8k",
+        knowledgeDate: "Dec 2023",
+        scores: [
+            { subject: "Reasoning", value: 85 },
+            { subject: "Coding", value: 82 },
+            { subject: "Creativity", value: 85 },
+            { subject: "Context", value: 60 },
+            { subject: "Speed", value: 90 },
+        ]
+    },
+    "deepseek-v3": {
+        name: "DeepSeek V3",
+        provider: "DeepSeek",
+        context: "64k",
+        maxOutput: "4k",
+        knowledgeDate: "Dec 2023",
+        scores: [
+            { subject: "Reasoning", value: 92 },
+            { subject: "Coding", value: 94 },
+            { subject: "Creativity", value: 85 },
+            { subject: "Context", value: 80 },
+            { subject: "Speed", value: 85 },
+        ]
+    }
+};
 
 const ComparePage = () => {
     const [modelA, setModelA] = useState<string>("gpt-4o");
@@ -44,15 +165,9 @@ const ComparePage = () => {
     const [comparison, setComparison] = useState<ComparisonResult | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    const models = [
-        "gpt-4o", "gpt-4o-mini", "claude-3.5-sonnet",
-        "gemini-1.5-pro", "gemini-1.5-flash",
-        "llama-3-70b-instruct", "deepseek-v3"
-    ];
-
     const handleCompare = async () => {
         if (modelA === modelB) {
-            setError("Please select two different models to compare.");
+            setError("Select two different models to compare.");
             return;
         }
 
@@ -70,199 +185,252 @@ const ComparePage = () => {
             const data = await response.json();
             setComparison(data.comparison);
         } catch (err) {
-            setError("Comparison failed. Please try again.");
+            setError("Failed to fetch comparison. Please try again.");
             console.error(err);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const formatModelName = (id: string) => id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    // Prepare Radar Data
+    const radarData = useMemo(() => {
+        const specsA = MODEL_SPECS[modelA]?.scores || [];
+        const specsB = MODEL_SPECS[modelB]?.scores || [];
 
-    // Helper to determine the "Winner" for cost visualization
-    const getCostStats = (id: string) => {
-        if (!comparison) return { total: 0, pct: 0, isCheaper: false };
-        const costData = comparison.cost_comparison[id] as { total_per_1m: number } | undefined;
-        const total = costData?.total_per_1m || 0;
-        const isCheaper = comparison.cost_comparison.cheaper_model === id;
-        return { total, isCheaper };
+        return specsA.map((s, i) => ({
+            subject: s.subject,
+            A: s.value,
+            B: specsB[i]?.value || 0,
+            fullMark: 100
+        }));
+    }, [modelA, modelB]);
+
+    const getCost = (id: string, key: string = 'total_per_1m') => {
+        if (!comparison) return 0;
+        const c = comparison.cost_comparison[id];
+        return (typeof c === 'object' && c !== null) ? Number(Number(c[key]).toFixed(2)) : 0;
     };
 
     return (
-        <div className="min-h-screen bg-[#0A0A0B] text-foreground grid-pattern font-sans selection:bg-primary/30">
+        <div className="min-h-screen bg-background text-foreground grid-pattern font-sans">
             <DashboardHeader />
 
             <main className="container mx-auto px-4 py-8 max-w-7xl">
-                {/* Header Section */}
-                <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
-                    <div className="flex items-center gap-4 w-full md:w-auto">
+                {/* Header */}
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-10">
+                    <div className="flex items-center gap-4">
                         <Link to="/">
-                            <Button variant="ghost" size="icon" className="hover:bg-primary/10 hover:text-primary rounded-full">
+                            <Button variant="ghost" size="icon" className="rounded-full hover:bg-muted">
                                 <ArrowLeft className="w-5 h-5" />
                             </Button>
                         </Link>
                         <div>
-                            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
-                                Comparison Arena
-                            </h1>
-                            <p className="text-muted-foreground text-sm">Head-to-head AI model analysis</p>
+                            <h1 className="text-3xl font-bold tracking-tight">Model Comparison</h1>
+                            <p className="text-muted-foreground">Technical specs and capability analysis</p>
                         </div>
                     </div>
+
+                    {/* Simple Selectors */}
+                    <Card className="flex items-center gap-4 p-2 pl-6 pr-2 bg-muted/30 border-muted-foreground/20 rounded-full shadow-lg">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-primary">A</span>
+                            <select
+                                value={modelA}
+                                onChange={(e) => setModelA(e.target.value)}
+                                className="bg-transparent border-none text-sm font-medium focus:ring-0 cursor-pointer text-foreground py-2 outline-none"
+                            >
+                                {Object.entries(MODEL_SPECS).map(([k, v]) => <option key={k} value={k} className="bg-background text-foreground">{v.name}</option>)}
+                            </select>
+                        </div>
+                        <span className="text-muted-foreground text-xs font-mono">VS</span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-cyan-500">B</span>
+                            <select
+                                value={modelB}
+                                onChange={(e) => setModelB(e.target.value)}
+                                className="bg-transparent border-none text-sm font-medium focus:ring-0 cursor-pointer text-foreground py-2 outline-none"
+                            >
+                                {Object.entries(MODEL_SPECS).map(([k, v]) => <option key={k} value={k} className="bg-background text-foreground">{v.name}</option>)}
+                            </select>
+                        </div>
+                        <Button onClick={handleCompare} disabled={isLoading} className="rounded-full px-6 ml-2 font-bold shadow-md">
+                            {isLoading ? "Analyzing..." : "Analyze Matchup"}
+                        </Button>
+                    </Card>
                 </div>
 
-                {/* Selection Card */}
-                <Card className="p-6 mb-10 border-white/10 bg-white/5 backdrop-blur-md shadow-2xl relative overflow-hidden">
-                    <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-primary/5 pointer-events-none" />
+                {error && <div className="p-4 mb-6 text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg text-center animate-in fade-in">{error}</div>}
 
-                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-6 items-end relative z-10">
-                        {/* Model A Selector */}
-                        <div className="space-y-2">
-                            <label className="text-xs font-semibold text-primary/80 uppercase tracking-widest pl-1">Challenger A</label>
-                            <div className="relative group">
-                                <select
-                                    value={modelA}
-                                    onChange={(e) => setModelA(e.target.value)}
-                                    className="w-full h-14 pl-4 pr-10 bg-black/40 border border-white/10 rounded-xl appearance-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all font-mono text-lg hover:bg-black/60 cursor-pointer"
-                                >
-                                    {models.map(m => <option key={m} value={m}>{formatModelName(m)}</option>)}
-                                </select>
-                                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none group-hover:text-primary transition-colors" />
-                            </div>
-                        </div>
-
-                        {/* VS Badge */}
-                        <div className="flex items-center justify-center pb-2">
-                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-cyan-600 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.5)] border-4 border-[#0A0A0B] z-10">
-                                <span className="font-black text-white text-sm italic">VS</span>
-                            </div>
-                        </div>
-
-                        {/* Model B Selector */}
-                        <div className="space-y-2">
-                            <label className="text-xs font-semibold text-cyan-400/80 uppercase tracking-widest pl-1">Challenger B</label>
-                            <div className="relative group">
-                                <select
-                                    value={modelB}
-                                    onChange={(e) => setModelB(e.target.value)}
-                                    className="w-full h-14 pl-4 pr-10 bg-black/40 border border-white/10 rounded-xl appearance-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 transition-all font-mono text-lg hover:bg-black/60 cursor-pointer"
-                                >
-                                    {models.map(m => <option key={m} value={m}>{formatModelName(m)}</option>)}
-                                </select>
-                                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none group-hover:text-cyan-400 transition-colors" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="mt-8 flex justify-center">
-                        <Button
-                            onClick={handleCompare}
-                            disabled={isLoading}
-                            className="h-12 px-8 bg-gradient-to-r from-primary to-cyan-600 hover:from-primary/90 hover:to-cyan-600/90 text-white font-bold tracking-wide rounded-full shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:shadow-[0_0_30px_rgba(6,182,212,0.5)] transition-all scale-100 hover:scale-105 active:scale-95 uppercase text-sm"
-                        >
-                            {isLoading ? (
-                                <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Analyzing Matchup...</span>
-                            ) : (
-                                <span className="flex items-center gap-2"><Zap className="w-4 h-4 fill-current" /> Analyze Matchup</span>
-                            )}
-                        </Button>
-                    </div>
-
-                    {error && <p className="text-red-400 text-center mt-4 text-sm font-medium animate-in fade-in">{error}</p>}
-                </Card>
-
-                {/* RESULTS ARENA */}
                 {comparison && (
-                    <div className="space-y-8 animate-in slide-in-from-bottom-10 fade-in duration-700">
-                        {/* 1. The Verdict */}
-                        <div className="bg-gradient-to-b from-primary/10 to-transparent p-[1px] rounded-2xl">
-                            <Card className="bg-[#0A0A0B]/80 backdrop-blur-xl border-none p-8 md:p-10 text-center relative overflow-hidden">
-                                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-1 bg-gradient-to-r from-transparent via-primary to-transparent" />
-                                <Trophy className="w-12 h-12 text-primary mx-auto mb-4 drop-shadow-[0_0_10px_rgba(6,182,212,0.5)]" />
-                                <h2 className="text-2xl md:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-b from-white to-white/70 mb-4">
-                                    The Verdict
-                                </h2>
-                                <p className="text-lg md:text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed">
-                                    {comparison.verdict}
-                                </p>
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {/* LEFT COLUMN: Visuals & Specs (8 cols) */}
+                        <div className="lg:col-span-8 space-y-8">
+
+                            {/* 1. Radar Chart & Verdict */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                {/* Chart */}
+                                <Card className="p-6 flex flex-col items-center justify-center bg-card/60 backdrop-blur-sm border-border">
+                                    <h3 className="text-xs font-bold mb-4 text-muted-foreground uppercase tracking-widest flex items-center gap-2"><Brain className="w-3 h-3" /> Capability Fingerprint</h3>
+                                    <div className="w-full h-[300px]">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
+                                                <PolarGrid stroke="rgba(255,255,255,0.1)" />
+                                                <PolarAngleAxis dataKey="subject" tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: 600 }} />
+                                                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                                <Radar name={MODEL_SPECS[modelA]?.name} dataKey="A" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.3} />
+                                                <Radar name={MODEL_SPECS[modelB]?.name} dataKey="B" stroke="#06b6d4" fill="#06b6d4" fillOpacity={0.3} />
+                                                <Legend />
+                                            </RadarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </Card>
+
+                                {/* Plain English Verdict */}
+                                <Card className="p-8 flex flex-col justify-center bg-gradient-to-br from-primary/5 via-card to-transparent border-primary/20 shadow-lg relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-20 h-20 bg-primary/10 blur-3xl rounded-full" />
+                                    <h3 className="flex items-center gap-2 text-primary font-bold mb-4 text-sm uppercase tracking-wider">
+                                        <Zap className="w-4 h-4" />
+                                        Analyst Verdict
+                                    </h3>
+                                    <p className="text-lg leading-relaxed text-foreground/90 font-medium">
+                                        "{comparison.verdict}"
+                                    </p>
+                                    <div className="mt-auto pt-6 border-t border-border/50 grid grid-cols-2 gap-4">
+                                        <div>
+                                            <p className="text-[10px] text-muted-foreground uppercase mb-1 font-bold tracking-wider">Cheaper Option</p>
+                                            <p className="font-bold text-green-400">
+                                                {MODEL_SPECS[comparison.cost_comparison.cheaper_model]?.name}
+                                                <span className="text-xs font-normal ml-1 opacity-70">(-{comparison.cost_comparison.cost_difference_pct.toFixed(0)}%)</span>
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] text-muted-foreground uppercase mb-1 font-bold tracking-wider">Data Updated</p>
+                                            <p className="font-mono text-sm opacity-70">{comparison.data_freshness}</p>
+                                        </div>
+                                    </div>
+                                </Card>
+                            </div>
+
+                            {/* 2. Specs Table */}
+                            <Card className="overflow-hidden border-border bg-card/40">
+                                <Table>
+                                    <TableHeader className="bg-muted/30">
+                                        <TableRow className="border-border/50">
+                                            <TableHead className="w-[200px] text-xs uppercase font-bold tracking-wider">Spec Feature</TableHead>
+                                            <TableHead className="text-primary font-bold">{MODEL_SPECS[modelA]?.name}</TableHead>
+                                            <TableHead className="text-cyan-500 font-bold">{MODEL_SPECS[modelB]?.name}</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        <TableRow className="border-border/50 hover:bg-transparent">
+                                            <TableCell className="font-medium text-muted-foreground"><Clock className="w-3.5 h-3.5 inline mr-2 opacity-70" />Context Window</TableCell>
+                                            <TableCell>{MODEL_SPECS[modelA]?.context}</TableCell>
+                                            <TableCell>{MODEL_SPECS[modelB]?.context}</TableCell>
+                                        </TableRow>
+                                        <TableRow className="border-border/50 hover:bg-transparent">
+                                            <TableCell className="font-medium text-muted-foreground"><Zap className="w-3.5 h-3.5 inline mr-2 opacity-70" />Max Output</TableCell>
+                                            <TableCell>{MODEL_SPECS[modelA]?.maxOutput}</TableCell>
+                                            <TableCell>{MODEL_SPECS[modelB]?.maxOutput}</TableCell>
+                                        </TableRow>
+                                        <TableRow className="border-border/50 hover:bg-transparent">
+                                            <TableCell className="font-medium text-muted-foreground"><BookOpen className="w-3.5 h-3.5 inline mr-2 opacity-70" />Knowledge Cutoff</TableCell>
+                                            <TableCell>{MODEL_SPECS[modelA]?.knowledgeDate}</TableCell>
+                                            <TableCell>{MODEL_SPECS[modelB]?.knowledgeDate}</TableCell>
+                                        </TableRow>
+                                        <TableRow className="border-border/50 hover:bg-transparent">
+                                            <TableCell className="font-medium text-muted-foreground">Provider</TableCell>
+                                            <TableCell>{MODEL_SPECS[modelA]?.provider}</TableCell>
+                                            <TableCell>{MODEL_SPECS[modelB]?.provider}</TableCell>
+                                        </TableRow>
+                                        <TableRow className="bg-muted/10 border-border/50 hover:bg-muted/10">
+                                            <TableCell className="font-medium text-muted-foreground">Cost (Input / 1M)</TableCell>
+                                            <TableCell>${getCost(modelA, 'input_per_1m')}</TableCell>
+                                            <TableCell>${getCost(modelB, 'input_per_1m')}</TableCell>
+                                        </TableRow>
+                                        <TableRow className="bg-muted/10 border-border/50 hover:bg-muted/10">
+                                            <TableCell className="font-medium text-muted-foreground">Cost (Output / 1M)</TableCell>
+                                            <TableCell>${getCost(modelA, 'output_per_1m')}</TableCell>
+                                            <TableCell>${getCost(modelB, 'output_per_1m')}</TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                            </Card>
+
+                            {/* 3. Tradeoffs */}
+                            <Card className="p-6 bg-card border-border">
+                                <h3 className="text-xs font-bold mb-4 text-muted-foreground uppercase tracking-widest">Critical Tradeoffs</h3>
+                                <ul className="space-y-4">
+                                    {comparison.key_tradeoffs.map((tradeoff, i) => (
+                                        <li key={i} className="flex gap-4 items-start p-3 rounded-lg bg-muted/20 border border-white/5">
+                                            <div className="mt-1 min-w-[20px] h-5 flex items-center justify-center rounded-full bg-yellow-500/20 text-yellow-500 font-bold text-xs ring-1 ring-yellow-500/50">
+                                                !
+                                            </div>
+                                            <p className="text-sm text-foreground/80 leading-relaxed">{tradeoff}</p>
+                                        </li>
+                                    ))}
+                                </ul>
                             </Card>
                         </div>
 
-                        {/* 2. Head-to-Head Grid */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                            {/* Left Corner: Model A */}
-                            <div className="space-y-6">
-                                <div className="flex items-center gap-4 mb-2">
-                                    <div className="h-10 w-1 bg-primary rounded-full" />
-                                    <div>
-                                        <h3 className="text-2xl font-bold text-white">{formatModelName(comparison.models_compared.model_a)}</h3>
-                                        <Badge variant="outline" className="border-primary/20 text-primary bg-primary/5">Challenger A</Badge>
-                                    </div>
-                                </div>
-                                <ComparisonCard
-                                    modelId={comparison.models_compared.model_a}
-                                    comparison={comparison}
-                                    color="primary"
-                                />
-                            </div>
+                        {/* RIGHT COLUMN: Key Decisions (4 cols) */}
+                        <div className="lg:col-span-4 space-y-6">
 
-                            {/* Right Corner: Model B */}
-                            <div className="space-y-6">
-                                <div className="flex items-center gap-4 mb-2 lg:flex-row-reverse text-right">
-                                    <div className="h-10 w-1 bg-cyan-400 rounded-full" />
-                                    <div>
-                                        <h3 className="text-2xl font-bold text-white">{formatModelName(comparison.models_compared.model_b)}</h3>
-                                        <Badge variant="outline" className="border-cyan-400/20 text-cyan-400 bg-cyan-400/5">Challenger B</Badge>
-                                    </div>
+                            {/* Scenario Winners */}
+                            <Card className="p-6 bg-card border-border h-auto shadow-lg">
+                                <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
+                                    <Trophy className="w-5 h-5 text-yellow-500" />
+                                    Recommended For...
+                                </h3>
+                                <div className="space-y-3">
+                                    <ScenarioItem
+                                        icon={<Code className="w-4 h-4" />}
+                                        title="Coding Tasks"
+                                        winner={MODEL_SPECS[modelA].scores.find(s => s.subject === "Coding")!.value > MODEL_SPECS[modelB].scores.find(s => s.subject === "Coding")!.value ? modelA : modelB}
+                                    />
+                                    <ScenarioItem
+                                        icon={<Brain className="w-4 h-4" />}
+                                        title="Complex Reasoning"
+                                        winner={MODEL_SPECS[modelA].scores.find(s => s.subject === "Reasoning")!.value > MODEL_SPECS[modelB].scores.find(s => s.subject === "Reasoning")!.value ? modelA : modelB}
+                                    />
+                                    <ScenarioItem
+                                        icon={<BookOpen className="w-4 h-4" />}
+                                        title="Long Documents"
+                                        winner={parseInt(MODEL_SPECS[modelA].context) > parseInt(MODEL_SPECS[modelB].context) ? modelA : modelB}
+                                    />
+                                    <ScenarioItem
+                                        icon={<Zap className="w-4 h-4" />}
+                                        title="Speed/Latency"
+                                        winner={MODEL_SPECS[modelA].scores.find(s => s.subject === "Speed")!.value > MODEL_SPECS[modelB].scores.find(s => s.subject === "Speed")!.value ? modelA : modelB}
+                                    />
                                 </div>
-                                <ComparisonCard
-                                    modelId={comparison.models_compared.model_b}
-                                    comparison={comparison}
-                                    color="cyan"
-                                    align="right"
-                                />
-                            </div>
+                            </Card>
+
+                            {/* Strengths Lists */}
+                            <Card className="p-5 border-l-4 border-l-primary bg-primary/5">
+                                <h4 className="font-bold text-primary mb-3 text-xs uppercase tracking-wider">{MODEL_SPECS[modelA]?.name} Wins On:</h4>
+                                <ul className="space-y-2">
+                                    {comparison.strengths[modelA]?.slice(0, 4).map((s, i) => (
+                                        <li key={i} className="text-sm text-foreground/80 flex gap-2">
+                                            <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                                            <span className="leading-tight">{s}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </Card>
+
+                            <Card className="p-5 border-l-4 border-l-cyan-500 bg-cyan-500/5">
+                                <h4 className="font-bold text-cyan-500 mb-3 text-xs uppercase tracking-wider">{MODEL_SPECS[modelB]?.name} Wins On:</h4>
+                                <ul className="space-y-2">
+                                    {comparison.strengths[modelB]?.slice(0, 4).map((s, i) => (
+                                        <li key={i} className="text-sm text-foreground/80 flex gap-2">
+                                            <Check className="w-4 h-4 text-cyan-500 shrink-0 mt-0.5" />
+                                            <span className="leading-tight">{s}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </Card>
+
                         </div>
-
-                        {/* 3. Cost Showdown */}
-                        <Card className="p-8 border-white/5 bg-white/5 backdrop-blur-md">
-                            <h3 className="text-lg font-bold flex items-center gap-2 mb-8">
-                                <DollarSign className="w-5 h-5 text-green-400" />
-                                <span className="bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">Cost Efficiency Showdown</span>
-                            </h3>
-
-                            <div className="space-y-8">
-                                <CostBar
-                                    modelName={formatModelName(comparison.models_compared.model_a)}
-                                    stats={getCostStats(comparison.models_compared.model_a)}
-                                    max={Math.max(getCostStats(comparison.models_compared.model_a).total, getCostStats(comparison.models_compared.model_b).total)}
-                                    color="bg-primary"
-                                />
-                                <CostBar
-                                    modelName={formatModelName(comparison.models_compared.model_b)}
-                                    stats={getCostStats(comparison.models_compared.model_b)}
-                                    max={Math.max(getCostStats(comparison.models_compared.model_a).total, getCostStats(comparison.models_compared.model_b).total)}
-                                    color="bg-cyan-500"
-                                />
-                            </div>
-                        </Card>
-
-                        {/* 4. Tradeoffs */}
-                        <Card className="p-6 md:p-8 border-white/10 bg-black/40">
-                            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-6 flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-yellow-500" />
-                                Critical Tradeoffs
-                            </h3>
-                            <div className="grid gap-4">
-                                {comparison.key_tradeoffs.map((tradeoff, i) => (
-                                    <div key={i} className="flex gap-4 items-start p-4 rounded-xl bg-white/5 border border-white/5 hover:border-white/10 transition-colors">
-                                        <div className="mt-1 min-w-[24px] h-6 flex items-center justify-center rounded bg-yellow-500/10 text-yellow-500 font-mono text-sm">
-                                            {i + 1}
-                                        </div>
-                                        <p className="text-base text-gray-300 leading-relaxed">{tradeoff}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </Card>
                     </div>
                 )}
             </main>
@@ -270,79 +438,48 @@ const ComparePage = () => {
     );
 };
 
-// Sub-components for cleanliness
-
-const ComparisonCard = ({ modelId, comparison, color, align = 'left' }: { modelId: string, comparison: ComparisonResult, color: 'primary' | 'cyan', align?: 'left' | 'right' }) => {
-    const isPrimary = color === 'primary';
-    const accentColor = isPrimary ? 'text-primary' : 'text-cyan-400';
-    const borderColor = isPrimary ? 'border-primary/20' : 'border-cyan-400/20';
-    const strengths = comparison.strengths[modelId] || [];
-    const useCases = comparison.choose_if[modelId] || [];
+// Helper for Scenario Winners
+const ScenarioItem = ({ icon, title, winner }: { icon: any, title: string, winner: string }) => {
+    // Only show if we have valid winner data
+    if (!winner) return null;
 
     return (
-        <Card className={`h-full bg-card/30 backdrop-blur-sm border ${borderColor} overflow-hidden flex flex-col`}>
-            {/* Strengths Section */}
-            <div className="p-6 flex-grow">
-                <div className={`flex items-center gap-2 mb-4 ${align === 'right' ? 'flex-row-reverse' : ''}`}>
-                    <Brain className={`w-4 h-4 ${accentColor}`} />
-                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Superpowers</span>
+        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/40 hover:bg-muted/60 transition-colors border border-transparent hover:border-border/50 cursor-default">
+            <div className="flex items-center gap-3">
+                <div className="p-2 rounded bg-background text-muted-foreground shadow-sm">
+                    {icon}
                 </div>
-                <ul className="space-y-3">
-                    {strengths.map((s, i) => (
-                        <li key={i} className={`flex gap-3 text-sm text-gray-300 ${align === 'right' ? 'flex-row-reverse text-right' : ''}`}>
-                            <div className={`mt-1 min-w-[6px] h-1.5 rounded-full ${isPrimary ? 'bg-primary' : 'bg-cyan-400'}`} />
-                            {s}
-                        </li>
-                    ))}
-                </ul>
+                <span className="text-sm font-medium">{title}</span>
             </div>
-
-            {/* Use Cases Section */}
-            <div className="bg-white/5 p-6 border-t border-white/5">
-                <div className={`flex items-center gap-2 mb-4 ${align === 'right' ? 'flex-row-reverse' : ''}`}>
-                    <Shield className={`w-4 h-4 ${accentColor}`} />
-                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Best For</span>
-                </div>
-                <div className={`flex flex-wrap gap-2 ${align === 'right' ? 'justify-end' : ''}`}>
-                    {useCases.map((u, i) => (
-                        <Badge key={i} variant="secondary" className="bg-white/10 hover:bg-white/20 text-gray-200 border-none px-3 py-1.5 font-normal">
-                            {u}
-                        </Badge>
-                    ))}
-                </div>
-            </div>
-        </Card>
-    );
-};
-
-const CostBar = ({ modelName, stats, max, color }: { modelName: string, stats: { total: number, isCheaper: boolean }, max: number, color: string }) => {
-    // Determine bar width percentage
-    const percentage = max > 0 ? (stats.total / max) * 100 : 0;
-
-    return (
-        <div>
-            <div className="flex justify-between items-end mb-2">
-                <div>
-                    <span className="text-base font-medium text-white mr-2">{modelName}</span>
-                    {stats.isCheaper && (
-                        <Badge className="bg-green-500/20 text-green-400 hover:bg-green-500/30 border-none uppercase text-[10px] tracking-wide">
-                            Best Value
-                        </Badge>
-                    )}
-                </div>
-                <div className="text-right">
-                    <span className="text-2xl font-mono font-bold text-white">${stats.total.toFixed(2)}</span>
-                    <span className="text-muted-foreground text-xs ml-1">/ 1M tokens</span>
-                </div>
-            </div>
-            <div className="h-3 w-full bg-white/10 rounded-full overflow-hidden relative">
-                <div
-                    className={`h-full ${color} rounded-full transition-all duration-1000 ease-out`}
-                    style={{ width: `${percentage}%` }}
-                />
-            </div>
+            <Badge variant="outline" className="font-bold bg-background text-foreground border-border">
+                {MODEL_SPECS[winner]?.name}
+            </Badge>
         </div>
-    );
-};
+    )
+}
+
+function Trophy(props: any) {
+    return (
+        <svg
+            {...props}
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+            <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+            <path d="M4 22h16" />
+            <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
+            <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
+            <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+        </svg>
+    )
+}
 
 export default ComparePage;
