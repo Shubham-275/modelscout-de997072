@@ -1,0 +1,16 @@
+# Vercel should ignore Docker files and use standard Vite build
+Dockerfile
+docker-compose.yml
+nginx.conf
+.dockerignore
+
+# Backend files (not needed for frontend)
+backend/
+
+# Development files
+.env.local
+.env.development
+*.log
+
+# Git
+.git/
