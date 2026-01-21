@@ -239,18 +239,30 @@ const Index = () => {
           // Extract benchmarks from metrics
           const metrics = result.benchmark_metrics || result.metrics || result;
           if (metrics && typeof metrics === 'object') {
-            // Filter out non-numeric fields
+            // Filter out non-numeric fields (allow numeric strings like "7.0 %")
             const numericMetrics = Object.entries(metrics).filter(
-              ([key, val]) => typeof val === 'number' && !['rank'].includes(key)
+              ([key, val]) => {
+                if (['rank', 'model', 'source', 'display_name'].includes(key)) return false;
+                if (typeof val === 'number') return true;
+                if (typeof val === 'string' && !isNaN(parseFloat(val))) return true;
+                return false;
+              }
             );
 
             if (numericMetrics.length > 0) {
               const benchmarkData: BenchmarkData[] = numericMetrics.map(
-                ([name, score]) => ({
-                  name: name.toUpperCase().replace(/_/g, ' '),
-                  score: Number(score) || 0,
-                  maxScore: name.toLowerCase().includes('elo') ? 1400 : 100,
-                })
+                ([name, score]) => {
+                  let cleanScore = score;
+                  // Handle "7.0 %" string case
+                  if (typeof score === 'string') {
+                    cleanScore = parseFloat(score.replace('%', ''));
+                  }
+                  return {
+                    name: name.toUpperCase().replace(/_/g, ' '),
+                    score: Number(cleanScore) || 0,
+                    maxScore: name.toLowerCase().includes('elo') ? 1400 : 100,
+                  };
+                }
               );
               console.log('[Model Scout] Adding benchmarks:', benchmarkData);
               setBenchmarks(prev => {
@@ -262,22 +274,26 @@ const Index = () => {
 
               // Also update radar chart data based on source category
               // Phase 1 axes: Logic, Coding, Economics, Safety
-              const sourceCategory = result.source || parsed.source || '';
-              const categoryMapping: Record<string, string> = {
-                // Logic axis (General benchmarks)
-                'huggingface': 'Logic',
-                'lmsys_arena': 'Logic',
-                // Coding axis
-                'livecodebench': 'Coding',
-                // Economics axis
-                'vellum': 'Economics',
-                // Safety axis
-                'mask': 'Safety',
-                'vectara': 'Safety',
-              };
+              const sourceCategory = (result.source || parsed.source || '').toLowerCase();
+              let category = 'Logic'; // Default
 
-              const category = categoryMapping[sourceCategory.toLowerCase()] || 'General';
-              const avgScore = numericMetrics.reduce((sum, [, val]) => sum + Number(val), 0) / numericMetrics.length;
+              if (sourceCategory.includes('livecode') || sourceCategory.includes('coding') || sourceCategory.includes('humaneval')) {
+                category = 'Coding';
+              } else if (sourceCategory.includes('vellum') || sourceCategory.includes('token') || sourceCategory.includes('economics')) {
+                category = 'Economics';
+              } else if (sourceCategory.includes('mask') || sourceCategory.includes('vectara') || sourceCategory.includes('safety') || sourceCategory.includes('hallucination')) {
+                category = 'Safety';
+              } else if (sourceCategory.includes('hugging') || sourceCategory.includes('arena') || sourceCategory.includes('logic')) {
+                category = 'Logic';
+              }
+
+              const avgScore = numericMetrics.reduce((sum, [, val]) => {
+                let cleanVal = val;
+                if (typeof val === 'string') {
+                  cleanVal = parseFloat(val.replace('%', ''));
+                }
+                return sum + (Number(cleanVal) || 0);
+              }, 0) / numericMetrics.length;
 
               if (avgScore > 0) {
                 setRadarData(prev => {

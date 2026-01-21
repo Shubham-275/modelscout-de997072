@@ -161,5 +161,51 @@ def get_model_history(model_name: str, limit: int = 30):
         } for row in rows]
 
 
+def get_all_latest_benchmarks():
+    """
+    Returns a dictionary mapping canonical model IDs to their latest benchmark data.
+    Structure: { model_id: { source: { metrics_dict } } }
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        # Query to get the most recent entry for each (model_name, source) pair
+        cursor.execute("""
+            SELECT model_name, source, rank, average_score, benchmark_metrics, scraped_at
+            FROM benchmark_results br1
+            WHERE scraped_at = (
+                SELECT MAX(scraped_at)
+                FROM benchmark_results br2
+                WHERE br1.model_name = br2.model_name 
+                AND br1.source = br2.source
+            )
+        """)
+        
+        rows = cursor.fetchall()
+        results = {}
+        for row in rows:
+            model_id = row['model_name']
+            source = row['source']
+            metrics_json = row['benchmark_metrics']
+            
+            try:
+                metrics = json.loads(metrics_json) if metrics_json else {}
+            except:
+                metrics = {}
+            
+            if model_id not in results:
+                results[model_id] = {}
+            
+            # Combine top-level score + rank into metrics
+            entry_data = {**metrics}
+            if row['average_score'] is not None:
+                entry_data['average_score'] = row['average_score']
+            if row['rank'] is not None:
+                entry_data['rank'] = row['rank']
+            
+            results[model_id][source] = entry_data
+            
+        return results
+
+
 # Initialize database on module import
 init_database()

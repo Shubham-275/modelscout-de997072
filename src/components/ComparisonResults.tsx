@@ -10,6 +10,7 @@ interface ComparisonResultsProps {
 }
 
 const METRIC_LABELS: Record<string, string> = {
+    // Core benchmarks
     mmlu: "MMLU",
     arc_challenge: "ARC-Challenge",
     hellaswag: "HellaSwag",
@@ -22,12 +23,31 @@ const METRIC_LABELS: Record<string, string> = {
     mt_bench: "MT-Bench",
     alpaca_eval: "AlpacaEval",
     average_score: "Average",
+    // LiveCodeBench
+    pass_at_1: "Pass@1",
+    // Vellum economics
+    speed_tps: "Speed (TPS)",
+    latency_ms: "Latency (ms)",
+    input_price: "Input Price",
+    output_price: "Output Price",
+    context_window: "Context Window",
+    // MASK safety
+    hallucination_rate: "Hallucination Rate",
+    lying_rate: "Lying Rate",
+    manipulation_score: "Manipulation Score",
+    // Vectara
+    accuracy: "Accuracy",
+    factual_consistency: "Factual Consistency",
+    score: "Score",
 };
 
 const SOURCE_LABELS: Record<string, string> = {
     huggingface: "HuggingFace",
-    lmsys_arena: "LMSys Arena",
-    papers_with_code: "Papers With Code",
+    lmsys_arena: "LMSYS Arena",
+    vellum: "Vellum",
+    livecodebench: "LiveCodeBench",
+    mask: "MASK",
+    vectara: "Vectara",
 };
 
 const ComparisonResults = ({
@@ -139,16 +159,28 @@ const ComparisonResults = ({
                             {/* Metrics Rows */}
                             <div className="space-y-2">
                                 {Array.from(allMetrics).map((metric) => {
-                                    const valA = metric === 'average_score'
+                                    const rawValA = metric === 'average_score'
                                         ? resultA?.average_score
                                         : resultA?.benchmark_metrics?.[metric];
-                                    const valB = metric === 'average_score'
+                                    const rawValB = metric === 'average_score'
                                         ? resultB?.average_score
                                         : resultB?.benchmark_metrics?.[metric];
 
-                                    const delta = (valA || 0) - (valB || 0);
+                                    // Convert to numbers (handles string values from API)
+                                    const valA = typeof rawValA === 'number' ? rawValA : (rawValA ? parseFloat(String(rawValA)) : undefined);
+                                    const valB = typeof rawValB === 'number' ? rawValB : (rawValB ? parseFloat(String(rawValB)) : undefined);
+
+                                    const numA = valA ?? 0;
+                                    const numB = valB ?? 0;
+                                    const delta = numA - numB;
                                     const isAWinner = delta > 0;
                                     const isBWinner = delta < 0;
+
+                                    // Format helper
+                                    const formatVal = (v: number | undefined) => {
+                                        if (v === undefined || isNaN(v)) return '—';
+                                        return v.toFixed(1);
+                                    };
 
                                     return (
                                         <div
@@ -165,7 +197,7 @@ const ComparisonResults = ({
                           w-24 text-center font-mono text-sm font-semibold
                           ${isAWinner ? 'text-secondary' : 'text-foreground'}
                         `}>
-                                                    {valA?.toFixed(1) ?? '—'}
+                                                    {formatVal(valA)}
                                                     {isAWinner && <Medal className="inline w-3 h-3 ml-1 text-secondary" />}
                                                 </span>
 
@@ -189,7 +221,7 @@ const ComparisonResults = ({
                           w-24 text-center font-mono text-sm font-semibold
                           ${isBWinner ? 'text-secondary' : 'text-foreground'}
                         `}>
-                                                    {valB?.toFixed(1) ?? '—'}
+                                                    {formatVal(valB)}
                                                     {isBWinner && <Medal className="inline w-3 h-3 ml-1 text-secondary" />}
                                                 </span>
                                             </div>

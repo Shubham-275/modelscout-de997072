@@ -18,6 +18,9 @@ from typing import Generator, List, Tuple, Dict, Any, Optional
 from config import (
     MINO_API_URL,
     MINO_API_KEY,
+    GEMINI_API_URL,
+    GEMINI_API_KEY,
+    BENCHMARK_SOURCES,
     BENCHMARK_SOURCES,
     MAX_WORKERS,
     REQUEST_TIMEOUT,
@@ -37,14 +40,19 @@ def extract_numeric(value: Any) -> Optional[float]:
     - N/A values → None
     - Strings like "89.1% (Pass@1)" → 89.1
     - Strings like "1287" → 1287.0
+    - Rejects error messages like "Model not found"
     """
     if value is None:
         return None
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
-        # Skip N/A values
-        if value.lower() in ['n/a', 'na', 'null', 'none', '-', '']:
+        # Skip N/A values and error messages
+        lower_val = value.lower()
+        skip_patterns = ['n/a', 'na', 'null', 'none', '-', '', 
+                         'not found', 'model not', 'not listed', 
+                         'not explicitly', 'inferred as']
+        if any(pattern in lower_val for pattern in skip_patterns):
             return None
         # Extract number from strings like "89.1% (Pass@1)" or "1287"
         match = re.search(r'(\d+\.?\d*)', value)
@@ -145,14 +153,15 @@ class MinoWorker:
         else:
             normalized["rank"] = None
         
-        # Extract main score
+        # Extract main score (NOT arena_elo - that has different scale)
+        # Only use proper percentage-based scores for average
         score_value = (
             raw_data.get('Score') or 
             raw_data.get('score') or 
             raw_data.get('Average Score') or 
             raw_data.get('average_score') or
-            raw_data.get('arena_elo') or
-            raw_data.get('Arena ELO')
+            raw_data.get('Average') or
+            raw_data.get('average')
         )
         normalized["average_score"] = extract_numeric(score_value)
         
@@ -209,8 +218,253 @@ class MinoWorker:
         
         normalized["benchmark_metrics"] = metrics
         
+        normalized["benchmark_metrics"] = metrics
+        
         return normalized
-    
+
+    def _snipe_with_gemini(
+        self, 
+        source_key: str, 
+        model_name: str
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Fallback method using Gemini API when Mino fails.
+        Fetches HTML directly and uses Gemini 1.5 Flash to extract data.
+        """
+        if not GEMINI_API_KEY:
+            yield {
+                "source": source_key,
+                "type": "error",
+                "status": "failed",
+                "benchmark": BENCHMARK_SOURCES[source_key]["name"],
+                "message": "Mino failed and GEMINI_API_KEY not configured. Cannot fallback.",
+                "error_code": "NO_FALLBACK_KEY",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            return
+
+        source_config = BENCHMARK_SOURCES[source_key]
+        url = source_config['url']
+        goal = self._create_goal(source_key, model_name)
+
+        yield {
+            "source": source_key,
+            "type": "log",
+            "status": "running",
+            "benchmark": BENCHMARK_SOURCES[source_key]["name"],
+            "message": f"Mino failed. Attempting Gemini fallback on {source_config['name']}...",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        try:
+            # 1. Fetch HTML
+            # Use random user agent to avoid basic blocking
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+            
+            resp = requests.get(url, headers=headers, timeout=30)
+            resp.raise_for_status()
+            
+            # Truncate to 100k chars to stay within reasonable limits (Flash has 1M context but we want speed)
+            html_content = resp.text[:100000]
+
+            # 2. Call Gemini
+            prompt = f"""You are a precise data extraction specialist.
+TASK: {goal}
+
+INSTRUCTIONS:
+1. Analyze the provided HTML content.
+2. Extract the requested data strictly as valid JSON.
+3. Do NOT include markdown formatting (like ```json).
+4. Return ONLY the JSON object.
+
+HTML CONTENT:
+{html_content}"""
+
+            payload = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }]
+            }
+            
+            # Call Gemini 1.5 Flash
+            gemini_resp = requests.post(
+                f"{GEMINI_API_URL}?key={GEMINI_API_KEY}", 
+                json=payload, 
+                timeout=60
+            )
+            gemini_resp.raise_for_status()
+            
+            result_json = gemini_resp.json()
+            
+            # Extract text safely
+            try:
+                text = result_json['candidates'][0]['content']['parts'][0]['text']
+                # Clean text
+                text = text.replace("```json", "").replace("```", "").strip()
+                data = json.loads(text)
+                
+                # Normalize result
+                normalized = self._normalize_mino_response(data, source_key, model_name)
+                
+                if normalized and normalized.get("average_score") is not None:
+                    # Success! Yield result
+                    yield {
+                        "source": source_key,
+                        "type": "result",
+                        "status": "completed",
+                        "benchmark": BENCHMARK_SOURCES[source_key]["name"],
+                        "data": normalized,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                    
+                    # Save to cache
+                    if self.use_cache:
+                        save_benchmark_result(model_name, source_key, normalized)
+                else:
+                    yield {
+                        "source": source_key,
+                        "type": "warning",
+                        "status": "completed",
+                        "benchmark": BENCHMARK_SOURCES[source_key]["name"],
+                        "message": f"Gemini could not find valid data for {model_name}",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                    
+            except (KeyError, IndexError, json.JSONDecodeError) as e:
+                yield {
+                    "source": source_key,
+                    "type": "error",
+                    "status": "failed",
+                    "benchmark": BENCHMARK_SOURCES[source_key]["name"],
+                    "message": f"Gemini response parsing failed: {str(e)}",
+                    "error_code": "GEMINI_PARSE_ERROR",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+
+        except Exception as e:
+            yield {
+                "source": source_key,
+                "type": "log",
+                "status": "running",
+                "benchmark": BENCHMARK_SOURCES[source_key]["name"],
+                "message": f"Gemini Direct Extraction failed ({str(e)[:50]})... Falling back to Google Search.",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            # Fallback to Search
+            yield from self._snipe_with_gemini_search(source_key, model_name)
+
+    def _snipe_with_gemini_search(
+        self,
+        source_key: str,
+        model_name: str
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Deep fallback: Use Gemini Grounding with Google Search to find data.
+        Used when direct page fetching fails or is blocked.
+        """
+        source_config = BENCHMARK_SOURCES[source_key]
+        goal = self._create_goal(source_key, model_name)
+        
+        yield {
+            "source": source_key,
+            "type": "log",
+            "status": "running",
+            "benchmark": source_config["name"],
+            "message": "Direct fetch failed. Asking Gemini to search Google...",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        prompt = f"""You are a research agent with access to Google Search.
+TASK: {goal}
+
+INSTRUCTIONS:
+1. Use Google Search to find the latest available data for this model on this specific benchmark source.
+2. Extract the values carefully.
+3. Return ONLY a valid JSON object matching the requested keys.
+4. Do not include markdown or explanations."""
+
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "tools": [{"google_search": {}}]
+        }
+        
+        try:
+            resp = requests.post(
+                f"{GEMINI_API_URL}?key={GEMINI_API_KEY}", 
+                json=payload, 
+                timeout=30
+            )
+            resp.raise_for_status()
+            
+            result_json = resp.json()
+            
+            try:
+                candidate = result_json['candidates'][0]
+                # Check for grounding metadata (optional verification, but we just want the text)
+                text = candidate['content']['parts'][0]['text']
+                
+                # Clean text
+                text = text.replace("```json", "").replace("```", "").strip()
+                # Sometimes search results add text before/after, try to find { }
+                if "{" in text and "}" in text:
+                    start = text.find("{")
+                    end = text.rfind("}") + 1
+                    text = text[start:end]
+                
+                data = json.loads(text)
+                
+                # Normalize result
+                normalized = self._normalize_mino_response(data, source_key, model_name)
+                
+                if normalized and normalized.get("average_score") is not None:
+                    # Success! Yield result
+                    yield {
+                        "source": source_key,
+                        "type": "result",
+                        "status": "completed",
+                        "benchmark": source_config["name"],
+                        "data": normalized,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                    
+                    # Save to cache
+                    if self.use_cache:
+                        save_benchmark_result(model_name, source_key, normalized)
+                else:
+                    yield {
+                        "source": source_key,
+                        "type": "warning",
+                        "status": "completed",
+                        "benchmark": source_config["name"],
+                        "message": f"Gemini Search could not find valid data for {model_name}",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                    
+            except (KeyError, IndexError, json.JSONDecodeError) as e:
+                yield {
+                    "source": source_key,
+                    "type": "error",
+                    "status": "failed",
+                    "benchmark": source_config["name"],
+                    "message": f"Gemini Search response parsing failed: {str(e)}",
+                    "error_code": "GEMINI_SEARCH_PARSE_ERROR",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+
+        except Exception as e:
+            yield {
+                "source": source_key,
+                "type": "error",
+                "status": "failed",
+                "benchmark": source_config["name"],
+                "message": f"Gemini Search failed: {str(e)[:100]}",
+                "error_code": "GEMINI_SEARCH_ERROR",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+
     def snipe_benchmark(
         self, 
         source_key: str, 
@@ -415,35 +669,27 @@ class MinoWorker:
                     "timestamp": datetime.utcnow().isoformat()
                 }
                     
-        except requests.exceptions.Timeout:
+        except (requests.exceptions.RequestException, Exception) as e:
+            # On ANY Mino failure, try fallback
             yield {
                 "source": source_key,
-                "type": "error",
-                "status": "failed",
+                "type": "log",
+                "status": "running",
                 "benchmark": BENCHMARK_SOURCES[source_key]["name"],
-                "message": f"Timeout while fetching from {BENCHMARK_SOURCES[source_key]['name']}",
-                "error_code": "TIMEOUT",
+                "message": f"Mino API failed ({str(e)[:50]})... Initiating Gemini fallback.",
                 "timestamp": datetime.utcnow().isoformat()
             }
-        except requests.exceptions.RequestException as e:
-            error_msg = str(e)
+            
+            # Execute fallback generator
+            yield from self._snipe_with_gemini(source_key, model_name)
+            
+            # Final done message
             yield {
                 "source": source_key,
-                "type": "error",
-                "status": "failed",
+                "type": "done",
+                "status": "completed",
                 "benchmark": BENCHMARK_SOURCES[source_key]["name"],
-                "message": f"Connection error: {error_msg[:100]}",
-                "error_code": "CONNECTION_ERROR",
-                "timestamp": datetime.utcnow().isoformat()
-            }
-        except Exception as e:
-            yield {
-                "source": source_key,
-                "type": "error",
-                "status": "failed",
-                "benchmark": BENCHMARK_SOURCES[source_key]["name"],
-                "message": f"Error: {str(e)[:100]}",
-                "error_code": "UNKNOWN_ERROR",
+                "message": "Extraction process finished (with fallback)",
                 "timestamp": datetime.utcnow().isoformat()
             }
 
@@ -554,8 +800,10 @@ def parallel_compare(
     }
     
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        # NOTE: Using default argument (task=task) to capture value, not reference
+        # Without this, all lambdas would reference the last task in the loop
         future_to_task = {
-            executor.submit(lambda t: list(worker.snipe_benchmark(t[0], t[1])), task): task
+            executor.submit(lambda t=task: list(worker.snipe_benchmark(t[0], t[1]))): task
             for task in tasks
         }
         

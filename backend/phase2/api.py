@@ -586,3 +586,517 @@ def prs_documentation():
         ],
         "disclaimer": "PRS is a stability and trust signal only. It does not imply model preference or quality ranking."
     })
+
+
+# =============================================================================
+# MODELSCOUT ANALYST ENDPOINTS (PHASE 2)
+# =============================================================================
+
+try:
+    from .model_scout_analyst import (
+        get_model_scout_analyst,
+        UserRequirements,
+        refresh_analyst
+    )
+    ANALYST_AVAILABLE = True
+    print("[OK] ModelScout Analyst module loaded successfully")
+except ImportError as e:
+    ANALYST_AVAILABLE = False
+    print(f"[WARN] ModelScout Analyst import failed: {e}")
+except Exception as e:
+    ANALYST_AVAILABLE = False
+    print(f"[ERROR] ModelScout Analyst unexpected error: {e}")
+    import traceback
+    traceback.print_exc()
+
+# Import Gemini-powered analyst
+try:
+    from .gemini_analyst import get_gemini_analyst
+    GEMINI_ANALYST_AVAILABLE = True
+    print("[OK] Gemini AI Analyst loaded successfully")
+except ImportError as e:
+    GEMINI_ANALYST_AVAILABLE = False
+    print(f"[WARN] Gemini Analyst import failed: {e}")
+except Exception as e:
+    GEMINI_ANALYST_AVAILABLE = False
+    print(f"[ERROR] Gemini Analyst error: {e}")
+
+# Import Mino-powered analyst
+try:
+    from .mino_analyst import get_mino_analyst
+    MINO_ANALYST_AVAILABLE = True
+    print("[OK] Mino AI Analyst loaded successfully")
+except ImportError as e:
+    MINO_ANALYST_AVAILABLE = False
+    print(f"[WARN] Mino Analyst import failed: {e}")
+except Exception as e:
+    MINO_ANALYST_AVAILABLE = False
+    print(f"[ERROR] Mino Analyst error: {e}")
+
+
+@phase2_api.route('/analyst/recommend', methods=['POST'])
+def analyst_recommend():
+    """
+    Get a model recommendation based on user requirements.
+    
+    Request body:
+    {
+        "use_case": "Building a code assistant for developers",
+        "priorities": {
+            "cost": "low",
+            "quality": "high",
+            "latency": "medium",
+            "context_length": "medium"
+        },
+        "monthly_budget_usd": 100,
+        "expected_tokens_per_month": 5000000
+    }
+    
+    Response:
+    - Primary Recommendation with reasoning
+    - Why other models were not chosen
+    - Cost estimate with assumptions
+    - Important caveats
+    - Data freshness warning
+    """
+    if not ANALYST_AVAILABLE:
+        return jsonify({"error": "Analyst module not available"}), 500
+    
+    data = request.get_json() or {}
+    
+    # Validate required fields
+    if not data.get("use_case"):
+        return jsonify({
+            "error": "Missing required field: use_case",
+            "example": {
+                "use_case": "Building a chatbot for customer support",
+                "priorities": {
+                    "cost": "medium",
+                    "quality": "high",
+                    "latency": "low",
+                    "context_length": "short"
+                },
+                "monthly_budget_usd": 500,
+                "expected_tokens_per_month": 10000000
+            }
+        }), 400
+    
+    try:
+        requirements = UserRequirements.from_dict(data)
+        analyst = get_model_scout_analyst()
+        analyst.refresh_data() # Ensure we use the latest DB data
+        recommendation = analyst.recommend(requirements)
+        
+        return jsonify({
+            "status": "success",
+            "recommendation": recommendation.to_dict(),
+            "user_requirements": requirements.to_dict(),
+            "_meta": {
+                "note": "This recommendation is based on benchmark data and stated requirements. Always validate against your specific use case.",
+                "documentation": "/api/v2/docs/analyst"
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": "Failed to generate recommendation",
+            "message": str(e)
+        }), 500
+
+
+@phase2_api.route('/analyst/benchmarks', methods=['POST'])
+def analyst_benchmarks():
+    """
+    Generate detailed benchmark report via Mino AI.
+    
+    Request body:
+    {
+        "model_name": "DeepSeek R1"
+    }
+    """
+    # Check availability (re-using the check from recommend_ai if possible, or assuming imports exist)
+    if not MINO_ANALYST_AVAILABLE:
+        return jsonify({"error": "Mino Analyst module not available"}), 503
+        
+    data = request.get_json() or {}
+    model_name = data.get("model_name", "DeepSeek R1")
+    
+    try:
+        analyst = get_mino_analyst()
+        result = analyst.generate_benchmark_report(model_name)
+        
+        return jsonify({
+            "status": "success",
+            "powered_by": "Mino AI",
+            "report": result
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": "Failed to generate benchmark report",
+            "message": str(e)
+        }), 500
+
+
+@phase2_api.route('/analyst/recommend/ai', methods=['POST'])
+def analyst_recommend_ai():
+    """
+    Get an AI-powered model recommendation using Gemini.
+    
+    This endpoint uses Gemini AI to analyze user requirements and 
+    recommend from ALL available models (not a fixed list).
+    
+    Request body:
+    {
+        "use_case": "Building a chatbot for customer support",
+        "priorities": {
+            "cost": "low|medium|high",
+            "quality": "low|medium|high", 
+            "latency": "low|medium|high",
+            "context_length": "short|medium|long"
+        },
+        "monthly_budget_usd": 100,
+        "expected_tokens_per_month": 5000000
+    }
+    
+    Returns:
+    - Recommended model with confidence score
+    - Cost per 1K tokens (input and output)
+    - Model strengths and weaknesses
+    - Why it's better than alternatives
+    - Number of models analyzed
+    """
+    if not MINO_ANALYST_AVAILABLE:
+        return jsonify({
+            "error": "Mino AI Analyst not available",
+            "message": "Mino API configuration missing. Check MINO_API_KEY in .env"
+        }), 503
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({
+            "error": "Missing request body",
+            "example": {
+                "use_case": "Describe what you want to build",
+                "priorities": {
+                    "cost": "low",
+                    "quality": "high",
+                    "latency": "medium",
+                    "context_length": "medium"
+                },
+                "monthly_budget_usd": 100,
+                "expected_tokens_per_month": 5000000
+            }
+        }), 400
+    
+    try:
+        analyst = get_mino_analyst()
+        
+        recommendation = analyst.recommend(
+            use_case=data.get("use_case", "General AI assistant"),
+            priorities=data.get("priorities", {}),
+            monthly_budget_usd=data.get("monthly_budget_usd"),
+            expected_tokens_per_month=data.get("expected_tokens_per_month")
+        )
+        
+        return jsonify({
+            "status": "success",
+            "powered_by": "Mino AI",
+            "recommendation": recommendation.to_dict(),
+            "user_requirements": {
+                "use_case": data.get("use_case"),
+                "priorities": data.get("priorities"),
+                "monthly_budget_usd": data.get("monthly_budget_usd"),
+                "expected_tokens_per_month": data.get("expected_tokens_per_month")
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": "AI recommendation failed",
+            "message": str(e)
+        }), 500
+
+
+@phase2_api.route('/analyst/disqualify/<model_id>', methods=['POST'])
+def analyst_disqualify(model_id: str):
+    """
+    Explain why a specific model is not recommended for given requirements.
+    
+    "Why NOT This Model?" Disqualifier Mode
+    
+    Request body: Same as /analyst/recommend
+    
+    Response:
+    - Whether model is recommended
+    - Disqualification reasons
+    - Requirement mismatches with details
+    - Alternative suggestion
+    """
+    if not ANALYST_AVAILABLE:
+        return jsonify({"error": "Analyst module not available"}), 500
+    
+    data = request.get_json() or {}
+    
+    try:
+        requirements = UserRequirements.from_dict(data)
+        analyst = get_model_scout_analyst()
+        analyst.refresh_data()
+        result = analyst.explain_disqualification(model_id, requirements)
+        
+        return jsonify({
+            "status": "success",
+            "disqualification_analysis": result.to_dict(),
+            "user_requirements": requirements.to_dict(),
+            "_meta": {
+                "note": "This analysis explains requirement mismatches. A model may still work for your use case despite mismatches."
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to analyze disqualification",
+            "message": str(e)
+        }), 500
+
+
+@phase2_api.route('/analyst/compare', methods=['POST'])
+def analyst_compare():
+    """
+    Compare two models side-by-side.
+    
+    Request body:
+    {
+        "model_a": "gpt-4o",
+        "model_b": "claude-3.5-sonnet"
+    }
+    
+    Response:
+    - High-level verdict
+    - Strengths of each model
+    - Key tradeoffs
+    - Which user should choose which
+    - Benchmark deltas
+    - Cost comparison
+    """
+    if not ANALYST_AVAILABLE:
+        return jsonify({"error": "Analyst module not available"}), 500
+    
+    data = request.get_json() or {}
+    
+    model_a = data.get("model_a")
+    model_b = data.get("model_b")
+    
+    if not model_a or not model_b:
+        return jsonify({
+            "error": "Both model_a and model_b are required",
+            "example": {
+                "model_a": "gpt-4o",
+                "model_b": "claude-3.5-sonnet"
+            }
+        }), 400
+    
+    try:
+        # Optional: include requirements for context
+        requirements = None
+        if data.get("requirements"):
+            requirements = UserRequirements.from_dict(data["requirements"])
+        
+        analyst = get_model_scout_analyst()
+        analyst.refresh_data()
+        comparison = analyst.compare(model_a, model_b, requirements)
+        
+        return jsonify({
+            "status": "success",
+            "comparison": comparison.to_dict(),
+            "_meta": {
+                "note": "No winner is declared unless context clearly favors one model. Consider your specific requirements.",
+                "sources": "Arena ELO, MMLU, HumanEval, pricing data"
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to compare models",
+            "message": str(e)
+        }), 500
+
+
+@phase2_api.route('/analyst/cost/<model_id>', methods=['GET'])
+def analyst_cost_breakdown(model_id: str):
+    """
+    Get detailed cost breakdown for a model.
+    
+    Query params:
+    - monthly_tokens: Expected monthly token usage (default: 1000000)
+    - input_ratio: Ratio of input to total tokens (default: 0.75)
+    
+    Response includes:
+    - Detailed cost estimate with all assumptions
+    - Unit prices
+    - Usage tiers (1M, 10M, 100M tokens)
+    """
+    if not ANALYST_AVAILABLE:
+        return jsonify({"error": "Analyst module not available"}), 500
+    
+    monthly_tokens = request.args.get("monthly_tokens", 1000000, type=int)
+    input_ratio = request.args.get("input_ratio", 0.75, type=float)
+    
+    try:
+        analyst = get_model_scout_analyst()
+        breakdown = analyst.get_cost_breakdown(model_id, monthly_tokens, input_ratio)
+        
+        return jsonify({
+            "status": "success" if "error" not in breakdown else "error",
+            **breakdown,
+            "_meta": {
+                "note": "Cost estimates are based on published API pricing. Actual costs may vary."
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to calculate cost",
+            "message": str(e)
+        }), 500
+
+
+@phase2_api.route('/analyst/data-status', methods=['GET'])
+def analyst_data_status():
+    """
+    Get current data status and freshness.
+    
+    Returns:
+    - Data freshness statement
+    - Benchmark snapshot date
+    - Models tracked
+    - Data completeness with warnings
+    """
+    if not ANALYST_AVAILABLE:
+        return jsonify({"error": "Analyst module not available"}), 500
+    
+    try:
+        analyst = get_model_scout_analyst()
+        status = analyst.get_data_status()
+        
+        return jsonify({
+            "status": "success",
+            **status,
+            "_meta": {
+                "note": "Data warnings indicate incomplete benchmark coverage. Results may be less reliable for models with warnings."
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to get data status",
+            "message": str(e)
+        }), 500
+
+
+@phase2_api.route('/analyst/models', methods=['GET'])
+def analyst_list_models():
+    """
+    List all models available for analysis.
+    
+    Returns available models with basic info.
+    """
+    if not ANALYST_AVAILABLE:
+        return jsonify({"error": "Analyst module not available"}), 500
+    
+    try:
+        analyst = get_model_scout_analyst()
+        
+        models = []
+        for model_id, benchmarks in analyst.benchmark_data.items():
+            pricing = analyst.pricing_data.get(model_id, {})
+            models.append({
+                "model_id": model_id,
+                "provider": pricing.get("provider", "Unknown"),
+                "arena_elo": benchmarks.get("arena_elo"),
+                "context_window": benchmarks.get("context_window"),
+                "pricing": {
+                    "input_per_1m": pricing.get("input", 0),
+                    "output_per_1m": pricing.get("output", 0)
+                }
+            })
+        
+        # Sort by Arena ELO descending
+        models.sort(key=lambda x: x.get("arena_elo") or 0, reverse=True)
+        
+        return jsonify({
+            "status": "success",
+            "models": models,
+            "total": len(models),
+            "data_freshness": analyst._get_data_freshness()
+        })
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to list models",
+            "message": str(e)
+        }), 500
+
+
+@phase2_api.route('/docs/analyst', methods=['GET'])
+def analyst_documentation():
+    """
+    ModelScout Analyst documentation.
+    """
+    return jsonify({
+        "name": "ModelScout AI Analyst",
+        "version": "Phase 2",
+        "mission": "Help users make confident model decisions by understanding tradeoffs, not by chasing rankings.",
+        "endpoints": {
+            "/api/v2/analyst/recommend": {
+                "method": "POST",
+                "description": "Get a model recommendation based on user requirements",
+                "body": {
+                    "use_case": "string (required)",
+                    "priorities": {
+                        "cost": "low | medium | high",
+                        "quality": "low | medium | high",
+                        "latency": "low | medium | high",
+                        "context_length": "short | medium | long"
+                    },
+                    "monthly_budget_usd": "number (optional)",
+                    "expected_tokens_per_month": "number (optional)"
+                }
+            },
+            "/api/v2/analyst/disqualify/<model_id>": {
+                "method": "POST",
+                "description": "Explain why a specific model is not recommended",
+                "body": "Same as /recommend"
+            },
+            "/api/v2/analyst/compare": {
+                "method": "POST",
+                "description": "Compare two models side-by-side",
+                "body": {
+                    "model_a": "string (required)",
+                    "model_b": "string (required)"
+                }
+            },
+            "/api/v2/analyst/cost/<model_id>": {
+                "method": "GET",
+                "description": "Get detailed cost breakdown",
+                "params": {
+                    "monthly_tokens": "int (default: 1000000)",
+                    "input_ratio": "float (default: 0.75)"
+                }
+            },
+            "/api/v2/analyst/data-status": {
+                "method": "GET",
+                "description": "Get data freshness and completeness status"
+            },
+            "/api/v2/analyst/models": {
+                "method": "GET",
+                "description": "List all available models"
+            }
+        },
+        "principles": [
+            "Never say 'best model overall'",
+            "Always mention cost vs quality tradeoff",
+            "Always include data freshness",
+            "Cost estimates always include assumptions",
+            "Be direct but neutral in disqualifications"
+        ],
+        "tone": "Clear, concise, professional. No emojis. No marketing language. No absolutes."
+    })

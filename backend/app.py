@@ -260,108 +260,82 @@ def get_cached(model_name: str):
 @app.route("/api/leaderboard", methods=["GET"])
 def get_leaderboard():
     """
-    Get aggregated leaderboard data.
-    Returns sample data for demonstration; production would query database.
-    
-    Note: This is mock data for Phase 1 demonstration purposes.
-    In production, this would aggregate data from the SQLite database.
+    Get the latest leaderboard data from the database (Phase 1 & 2 integration).
+    Aggregates results from multiple benchmarks into a unified view.
     """
-    leaderboard = [
-        {
-            "rank": 1,
-            "model": "GPT-4o",
-            "model_id": "openai/gpt-4o",
-            "provider": "OpenAI",
-            "mmlu": 88.7,
-            "arena_elo": 1287,
-            "humaneval": 90.2,
-            "hallucination_rate": 3.2,  # Lower is better
-            "average": 89.0
-        },
-        {
-            "rank": 2,
-            "model": "Claude 3.5 Sonnet",
-            "model_id": "anthropic/claude-3.5-sonnet",
-            "provider": "Anthropic",
-            "mmlu": 88.3,
-            "arena_elo": 1272,
-            "humaneval": 92.0,
-            "hallucination_rate": 2.8,
-            "average": 88.5
-        },
-        {
-            "rank": 3,
-            "model": "Gemini 1.5 Pro",
-            "model_id": "google/gemini-1.5-pro",
-            "provider": "Google",
-            "mmlu": 85.9,
-            "arena_elo": 1260,
-            "humaneval": 84.1,
-            "hallucination_rate": 4.1,
-            "average": 85.2
-        },
-        {
-            "rank": 4,
-            "model": "Llama-3-70B-Instruct",
-            "model_id": "meta/llama-3-70b-instruct",
-            "provider": "Meta",
-            "mmlu": 82.0,
-            "arena_elo": 1207,
-            "humaneval": 81.7,
-            "hallucination_rate": 5.3,
-            "average": 81.5
-        },
-        {
-            "rank": 5,
-            "model": "DeepSeek-V2-Chat",
-            "model_id": "deepseek/deepseek-v2-chat",
-            "provider": "DeepSeek",
-            "mmlu": 84.2,
-            "arena_elo": 1189,
-            "humaneval": 84.3,
-            "hallucination_rate": 4.7,
-            "average": 82.8
-        },
-        {
-            "rank": 6,
-            "model": "Qwen2-72B-Instruct",
-            "model_id": "alibaba/qwen2-72b-instruct",
-            "provider": "Alibaba",
-            "mmlu": 84.2,
-            "arena_elo": 1187,
-            "humaneval": 86.0,
-            "hallucination_rate": 4.9,
-            "average": 84.5
-        },
-        {
-            "rank": 7,
-            "model": "Mistral-Large-2",
-            "model_id": "mistral/mistral-large-2",
-            "provider": "Mistral",
-            "mmlu": 84.0,
-            "arena_elo": 1158,
-            "humaneval": 89.0,
-            "hallucination_rate": 5.1,
-            "average": 85.0
-        },
-        {
-            "rank": 8,
-            "model": "Command R+",
-            "model_id": "cohere/command-r-plus",
-            "provider": "Cohere",
-            "mmlu": 75.7,
-            "arena_elo": 1147,
-            "humaneval": 75.0,
-            "hallucination_rate": 6.2,
-            "average": 75.3
-        }
-    ]
+    try:
+        from database import get_all_latest_benchmarks
+        db_results = get_all_latest_benchmarks()
+    except ImportError:
+        return jsonify({"error": "Database utility not available"}), 500
+
+    leaderboard = []
     
+    for model_id, sources in db_results.items():
+        # Basic model info
+        parts = model_id.split('/')
+        provider = parts[0].capitalize() if len(parts) > 1 else "Unknown"
+        
+        # Extract specific metrics
+        mmlu = 0.0
+        arena_elo = 0
+        humaneval = 0.0
+        context = 0
+        safety = 0.0
+        
+        # Fill from sources (Source keys: huggingface, lmsys_arena, livecodebench, vellum, mask, vectara)
+        if "huggingface" in sources:
+            mmlu = sources["huggingface"].get("mmlu", sources["huggingface"].get("average_score", 0))
+        
+        if "lmsys_arena" in sources:
+            arena_elo = sources["lmsys_arena"].get("arena_elo", sources["lmsys_arena"].get("average_score", 0))
+            
+        if "livecodebench" in sources:
+            humaneval = sources["livecodebench"].get("humaneval", sources["livecodebench"].get("average_score", 0))
+            
+        if "vellum" in sources:
+            metrics = sources["vellum"].get("metrics", sources["vellum"])
+            context = metrics.get("context_window", 0)
+            
+        if "mask" in sources:
+            safety = sources["mask"].get("average_score", 0)
+        elif "vectara" in sources:
+            safety = sources["vectara"].get("average_score", 0)
+            
+        # Calculate composite average
+        scores_to_avg = []
+        if mmlu > 0: scores_to_avg.append(float(mmlu))
+        if arena_elo > 0: 
+            # Normalize ELO: (elo - 1000) / 4 -> roughly maps 1000-1400 to 0-100
+            scores_to_avg.append(max(0, min(100, (float(arena_elo) - 1000) / 4))) 
+        if humaneval > 0: scores_to_avg.append(float(humaneval))
+        if safety > 0: scores_to_avg.append(float(safety))
+        
+        average = sum(scores_to_avg) / len(scores_to_avg) if scores_to_avg else 0
+        
+        leaderboard.append({
+            "model": model_id,
+            "provider": provider,
+            "mmlu": round(float(mmlu), 1),
+            "arena_elo": int(arena_elo),
+            "humaneval": round(float(humaneval), 1),
+            "context": int(context),
+            "safety": round(float(safety), 1),
+            "average": round(float(average), 1),
+            "rank": 0
+        })
+    
+    # Sort by average score descending
+    leaderboard = sorted(leaderboard, key=lambda x: x["average"], reverse=True)
+    
+    # Assign ranks
+    for i, entry in enumerate(leaderboard):
+        entry["rank"] = i + 1
+        
     return jsonify({
-        "leaderboard": leaderboard,
+        "status": "success",
         "updated_at": datetime.utcnow().isoformat(),
-        "phase": "1",
-        "note": "Sample data for Phase 1 demonstration"
+        "leaderboard": leaderboard
     })
 
 
@@ -392,6 +366,24 @@ if __name__ == "__main__":
         print(f"    GET  /api/v2/regressions/history")
         print(f"    GET  /api/v2/frontier")
         print(f"    GET  /api/v2/docs/prs")
+        
+        # Check if analyst module is available
+        try:
+            from phase2.api import ANALYST_AVAILABLE
+            if ANALYST_AVAILABLE:
+                print(f"[INFO] Phase 2 AI Analyst endpoints (ACTIVE):")
+                print(f"    POST /api/v2/analyst/recommend")
+                print(f"    POST /api/v2/analyst/recommend/ai  [Gemini AI]")
+                print(f"    POST /api/v2/analyst/disqualify/<model_id>")
+                print(f"    POST /api/v2/analyst/compare")
+                print(f"    GET  /api/v2/analyst/cost/<model_id>")
+                print(f"    GET  /api/v2/analyst/data-status")
+                print(f"    GET  /api/v2/analyst/models")
+                print(f"    GET  /api/v2/docs/analyst")
+            else:
+                print(f"[!] Phase 2 AI Analyst module NOT loaded")
+        except:
+            pass
     else:
         print(f"[!] Phase 2 endpoints NOT available")
     

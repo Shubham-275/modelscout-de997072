@@ -24,6 +24,13 @@ MINO_API_URL = "https://mino.ai/v1/automation/run-sse"
 MINO_API_KEY = os.environ.get("MINO_API_KEY", "")
 
 # =============================================================================
+# GEMINI API CONFIGURATION (FALLBACK)
+# =============================================================================
+
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+# =============================================================================
 # THREADPOOLEXECUTOR SETTINGS (MANDATORY)
 # max_workers=5 as per spec
 # =============================================================================
@@ -212,11 +219,14 @@ MODEL_ID_MAPPING = {
     "claude-3-haiku": "anthropic/claude-3-haiku",
     
     # Google Models
+    "gemini-2.0-pro": "google/gemini-2.0-pro",
+    "gemini-2.0-flash": "google/gemini-2.0-flash",
     "gemini-1.5-pro": "google/gemini-1.5-pro",
     "gemini-1.5-flash": "google/gemini-1.5-flash",
     "gemini-pro": "google/gemini-pro",
     
     # Meta Models
+    "llama-3.3-70b-instruct": "meta/llama-3.3-70b-instruct",
     "llama-3-70b-instruct": "meta/llama-3-70b-instruct",
     "llama-3-8b-instruct": "meta/llama-3-8b-instruct",
     "llama-3.1-405b-instruct": "meta/llama-3.1-405b-instruct",
@@ -231,10 +241,13 @@ MODEL_ID_MAPPING = {
     "mixtral-8x7b": "mistral/mixtral-8x7b",
     
     # DeepSeek Models
+    "deepseek-v3": "deepseek/deepseek-v3",
+    "deepseek-v2.5": "deepseek/deepseek-v2.5",
     "deepseek-v2-chat": "deepseek/deepseek-v2-chat",
     "deepseek-coder": "deepseek/deepseek-coder",
     
     # Alibaba Models
+    "qwen2.5-72b-instruct": "alibaba/qwen2.5-72b-instruct",
     "qwen2-72b-instruct": "alibaba/qwen2-72b-instruct",
     "qwen2-7b-instruct": "alibaba/qwen2-7b-instruct",
     

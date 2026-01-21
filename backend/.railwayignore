@@ -1,0 +1,44 @@
+# Railway ignore file - exclude unnecessary files from deployment
+
+# Frontend files (not needed for backend)
+node_modules/
+dist/
+src/
+public/
+*.tsx
+*.ts
+package.json
+package-lock.json
+vite.config.ts
+tsconfig.json
+index.html
+
+# Development files
+.env.local
+.env.development
+*.log
+.DS_Store
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+README.md
+DEPLOYMENT*.md
+DEPLOY*.md
+
+# Tests
+tests/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Database (will be created on Railway)
+*.db
+*.sqlite
+*.sqlite3
