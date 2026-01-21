@@ -12,6 +12,29 @@ dist
 dist-ssr
 *.local
 
+# Environment variables - NEVER COMMIT THESE!
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

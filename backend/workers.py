@@ -18,9 +18,6 @@ from typing import Generator, List, Tuple, Dict, Any, Optional
 from config import (
     MINO_API_URL,
     MINO_API_KEY,
-    GEMINI_API_URL,
-    GEMINI_API_KEY,
-    BENCHMARK_SOURCES,
     BENCHMARK_SOURCES,
     MAX_WORKERS,
     REQUEST_TIMEOUT,
@@ -670,26 +667,24 @@ INSTRUCTIONS:
                 }
                     
         except (requests.exceptions.RequestException, Exception) as e:
-            # On ANY Mino failure, try fallback
+            # On ANY Mino failure, report error
             yield {
                 "source": source_key,
-                "type": "log",
-                "status": "running",
+                "type": "error",
+                "status": "failed",
                 "benchmark": BENCHMARK_SOURCES[source_key]["name"],
-                "message": f"Mino API failed ({str(e)[:50]})... Initiating Gemini fallback.",
+                "message": f"Mino API failed: {str(e)[:100]}",
+                "error_code": "MINO_API_ERROR",
                 "timestamp": datetime.utcnow().isoformat()
             }
-            
-            # Execute fallback generator
-            yield from self._snipe_with_gemini(source_key, model_name)
             
             # Final done message
             yield {
                 "source": source_key,
                 "type": "done",
-                "status": "completed",
+                "status": "failed",
                 "benchmark": BENCHMARK_SOURCES[source_key]["name"],
-                "message": "Extraction process finished (with fallback)",
+                "message": "Extraction failed",
                 "timestamp": datetime.utcnow().isoformat()
             }
 
