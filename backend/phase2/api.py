@@ -623,6 +623,19 @@ except Exception as e:
     print(f"[ERROR] Mino Analyst error: {e}")
 
 
+# Import Multimodal Analyst
+try:
+    from .multimodal_analyst import MultimodalAnalyst, MultimodalRequirements
+    MULTIMODAL_ANALYST_AVAILABLE = True
+    print("[OK] Multimodal Analyst loaded successfully")
+except ImportError as e:
+    MULTIMODAL_ANALYST_AVAILABLE = False
+    print(f"[WARN] Multimodal Analyst import failed: {e}")
+except Exception as e:
+    MULTIMODAL_ANALYST_AVAILABLE = False
+    print(f"[ERROR] Multimodal Analyst error: {e}")
+
+
 @phase2_api.route('/analyst/recommend', methods=['POST'])
 def analyst_recommend():
     """
@@ -1089,3 +1102,254 @@ def analyst_documentation():
         ],
         "tone": "Clear, concise, professional. No emojis. No marketing language. No absolutes."
     })
+
+
+@phase2_api.route('/analyst/recommend/multimodal', methods=['POST'])
+def analyst_recommend_multimodal():
+    """
+    Get a multimodal model recommendation (voice, video, image, 3D).
+    
+    This endpoint supports ALL model types beyond text LLMs.
+    
+    Request body:
+    {
+        "use_case": "Generate product images for e-commerce",
+        "modality": "image|video|voice|3d",
+        "priorities": {
+            "quality": "low|medium|high",
+            "cost": "low|medium|high",
+            "speed": "low|medium|high"
+        },
+        "monthly_budget_usd": 100,
+        "expected_usage_per_month": 1000,  # images, seconds, characters, or models
+        
+        # Modality-specific requirements (optional)
+        "image_requirements": {
+            "min_resolution": 1024,
+            "needs_safety_filter": true,
+            "needs_style_diversity": true
+        },
+        "video_requirements": {
+            "min_duration_sec": 10,
+            "min_resolution": "1080p"
+        },
+        "voice_requirements": {
+            "needs_voice_cloning": true,
+            "languages": ["en", "es", "fr"],
+            "needs_emotions": true
+        },
+        "three_d_requirements": {
+            "needs_rigging": true,
+            "min_polygons": 50000,
+            "needs_optimization": true
+        }
+    }
+    
+    Returns:
+    - Recommended model with reasoning
+    - Modality-specific benchmarks
+    - Cost breakdown
+    - Alternative models
+    - Confidence score
+    """
+    if not MULTIMODAL_ANALYST_AVAILABLE:
+        return jsonify({
+            "error": "Multimodal Analyst not available",
+            "message": "Multimodal analyst module failed to load"
+        }), 503
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({
+            "error": "Missing request body",
+            "example": {
+                "use_case": "Generate product images for e-commerce",
+                "modality": "image",
+                "priorities": {
+                    "quality": "high",
+                    "cost": "medium",
+                    "speed": "high"
+                },
+                "monthly_budget_usd": 100,
+                "expected_usage_per_month": 1000,
+                "image_requirements": {
+                    "min_resolution": 1024,
+                    "needs_safety_filter": True
+                }
+            }
+        }), 400
+    
+    # Validate modality
+    modality = data.get("modality", "").lower()
+    if modality not in ["image", "video", "voice", "3d"]:
+        return jsonify({
+            "error": "Invalid modality",
+            "message": f"Modality must be one of: image, video, voice, 3d. Got: {modality}",
+            "supported_modalities": ["image", "video", "voice", "3d"]
+        }), 400
+    
+    try:
+        requirements = MultimodalRequirements.from_dict(data)
+        analyst = MultimodalAnalyst()
+        recommendation = analyst.recommend(requirements)
+        
+        return jsonify({
+            "status": "success",
+            "modality": modality,
+            "recommendation": recommendation,
+            "user_requirements": {
+                "use_case": data.get("use_case"),
+                "modality": modality,
+                "priorities": data.get("priorities"),
+                "monthly_budget_usd": data.get("monthly_budget_usd"),
+                "expected_usage_per_month": data.get("expected_usage_per_month")
+            },
+            "_meta": {
+                "note": "This recommendation is based on modality-specific benchmarks and your stated requirements.",
+                "supported_modalities": analyst.get_supported_modalities(),
+                "documentation": "/api/v2/docs/multimodal"
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": "Failed to generate multimodal recommendation",
+            "message": str(e)
+        }), 500
+
+
+@phase2_api.route('/analyst/models/multimodal', methods=['GET'])
+def get_multimodal_models():
+    """
+    Get all available multimodal models by modality.
+    
+    Query params:
+    - modality: Filter by modality (image, video, voice, 3d)
+    
+    Returns:
+    - List of models with their benchmarks and pricing
+    """
+    if not MULTIMODAL_ANALYST_AVAILABLE:
+        return jsonify({
+            "error": "Multimodal Analyst not available"
+        }), 503
+    
+    modality = request.args.get('modality', '').lower()
+    
+    try:
+        analyst = MultimodalAnalyst()
+        
+        if modality:
+            if modality not in ["image", "video", "voice", "3d"]:
+                return jsonify({
+                    "error": "Invalid modality",
+                    "supported": analyst.get_supported_modalities()
+                }), 400
+            
+            models = analyst.get_models_by_modality(modality)
+            model_data = {
+                model_id: {
+                    "benchmarks": analyst.benchmark_data.get(model_id, {}),
+                    "pricing": analyst.pricing_data.get(model_id, {})
+                }
+                for model_id in models
+            }
+            
+            return jsonify({
+                "modality": modality,
+                "models": model_data,
+                "count": len(models)
+            })
+        else:
+            # Return all modalities
+            all_modalities = analyst.get_supported_modalities()
+            result = {}
+            
+            for mod in all_modalities:
+                models = analyst.get_models_by_modality(mod)
+                result[mod] = {
+                    "count": len(models),
+                    "models": models
+                }
+            
+            return jsonify({
+                "supported_modalities": all_modalities,
+                "models_by_modality": result
+            })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": "Failed to retrieve multimodal models",
+            "message": str(e)
+        }), 500
+
+
+@phase2_api.route('/docs/multimodal', methods=['GET'])
+def multimodal_documentation():
+    """
+    Multimodal analyst documentation.
+    """
+    return jsonify({
+        "name": "Multimodal AI Model Analyst",
+        "description": "Recommendation engine for voice, video, image, and 3D generation models",
+        "supported_modalities": {
+            "image": {
+                "metrics": [
+                    "image_quality_score (0-100)",
+                    "prompt_adherence (0-100)",
+                    "style_diversity (0-100)",
+                    "resolution_max (pixels)",
+                    "generation_time_sec",
+                    "nsfw_filter (boolean)"
+                ],
+                "example_models": ["dall-e-3", "stable-diffusion-xl", "midjourney-v6", "imagen-2"]
+            },
+            "video": {
+                "metrics": [
+                    "video_quality_score (0-100)",
+                    "temporal_consistency (0-100)",
+                    "motion_realism (0-100)",
+                    "max_duration_sec",
+                    "resolution",
+                    "fps"
+                ],
+                "example_models": ["runway-gen-2", "pika-1.0", "stable-video-diffusion", "sora"]
+            },
+            "voice": {
+                "metrics": [
+                    "voice_naturalness (0-100)",
+                    "emotion_range (0-100)",
+                    "language_support (count)",
+                    "latency_ms",
+                    "voice_cloning (boolean)"
+                ],
+                "example_models": ["elevenlabs-turbo", "elevenlabs-multilingual", "openai-tts-1", "openai-tts-1-hd"]
+            },
+            "3d": {
+                "metrics": [
+                    "mesh_quality_score (0-100)",
+                    "texture_quality (0-100)",
+                    "polygon_efficiency (0-100)",
+                    "generation_time_sec",
+                    "max_polygons",
+                    "supports_rigging (boolean)"
+                ],
+                "example_models": ["meshy-3", "luma-genie", "spline-ai", "point-e"]
+            }
+        },
+        "scoring_approach": "Dynamic, modality-specific scoring based on user requirements. No fixed combinations.",
+        "principles": [
+            "Each modality has unique metrics and scoring logic",
+            "Recommendations are based on actual benchmarks, not marketing claims",
+            "Cost transparency with detailed breakdowns",
+            "Quality vs cost tradeoffs clearly explained",
+            "Supports unlimited model combinations"
+        ],
+        "endpoints": {
+            "/api/v2/analyst/recommend/multimodal": "Get recommendation for voice/video/image/3D models",
+            "/api/v2/analyst/models/multimodal": "List all multimodal models by modality"
+        }
+    })
+

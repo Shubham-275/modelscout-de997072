@@ -67,11 +67,84 @@ class MinoRecommendation:
 
 
 class MinoAnalyst:
-    """AI-powered model analyst using Mino API."""
+    """AI-powered model analyst using Mino API with modality validation."""
+    
+    # Known model categories (non-hardcoded, pattern-based)
+    TEXT_LLM_INDICATORS = ["gpt", "claude", "gemini", "llama", "mistral", "qwen", "deepseek", "phi", "yi"]
+    IMAGE_GEN_INDICATORS = ["dall-e", "stable-diffusion", "midjourney", "imagen", "firefly", "flux"]
+    VIDEO_GEN_INDICATORS = ["runway", "pika", "sora", "stable-video", "gen-2", "gen-3"]
+    VOICE_INDICATORS = ["elevenlabs", "tts", "polly", "wavenet", "resemble", "voice", "speech"]
+    THREE_D_INDICATORS = ["meshy", "luma", "spline", "point-e", "3d", "mesh"]
     
     def __init__(self):
         self.api_key = MINO_API_KEY
         self.api_url = MINO_API_URL
+    
+    def _detect_modality(self, use_case: str) -> str:
+        """
+        Detect the modality from the use case description.
+        Returns: 'text', 'image', 'video', 'voice', or '3d'
+        """
+        use_case_lower = use_case.lower()
+        
+        # Video generation keywords
+        if any(keyword in use_case_lower for keyword in [
+            "video", "clip", "footage", "animation", "movie", "film", "motion"
+        ]):
+            return "video"
+        
+        # Image generation keywords
+        if any(keyword in use_case_lower for keyword in [
+            "image", "picture", "photo", "illustration", "art", "graphic", "visual", "drawing", "render"
+        ]) and "video" not in use_case_lower:
+            return "image"
+        
+        # Voice/audio keywords
+        if any(keyword in use_case_lower for keyword in [
+            "voice", "speech", "audio", "tts", "text-to-speech", "narration", "podcast", "voiceover"
+        ]):
+            return "voice"
+        
+        # 3D keywords
+        if any(keyword in use_case_lower for keyword in [
+            "3d", "mesh", "model", "asset", "game", "unity", "unreal", "blender"
+        ]) and any(keyword in use_case_lower for keyword in ["generate", "create", "build"]):
+            return "3d"
+        
+        # Default to text LLM
+        return "text"
+    
+    def _validate_model_modality(self, model_name: str, expected_modality: str) -> bool:
+        """
+        Validate that the recommended model matches the expected modality.
+        Uses pattern matching instead of hardcoded lists.
+        """
+        model_lower = model_name.lower()
+        
+        if expected_modality == "text":
+            # Text LLMs should NOT be image/video/voice/3D models
+            is_text = any(indicator in model_lower for indicator in self.TEXT_LLM_INDICATORS)
+            is_non_text = (
+                any(indicator in model_lower for indicator in self.IMAGE_GEN_INDICATORS) or
+                any(indicator in model_lower for indicator in self.VIDEO_GEN_INDICATORS) or
+                any(indicator in model_lower for indicator in self.VOICE_INDICATORS) or
+                any(indicator in model_lower for indicator in self.THREE_D_INDICATORS)
+            )
+            return is_text and not is_non_text
+        
+        elif expected_modality == "image":
+            return any(indicator in model_lower for indicator in self.IMAGE_GEN_INDICATORS)
+        
+        elif expected_modality == "video":
+            return any(indicator in model_lower for indicator in self.VIDEO_GEN_INDICATORS)
+        
+        elif expected_modality == "voice":
+            return any(indicator in model_lower for indicator in self.VOICE_INDICATORS)
+        
+        elif expected_modality == "3d":
+            return any(indicator in model_lower for indicator in self.THREE_D_INDICATORS)
+        
+        return True  # If we can't determine, allow it
     
     def _call_mino(self, prompt: str) -> Optional[str]:
         """Call Mino API and return the response."""
@@ -163,8 +236,88 @@ class MinoAnalyst:
         monthly_budget_usd: Optional[float] = None,
         expected_tokens_per_month: Optional[int] = None
     ) -> MinoRecommendation:
-        """Generate an AI-powered recommendation using Mino."""
+        """Generate an AI-powered recommendation using Mino with modality validation."""
         
+        # Detect the modality from use case
+        detected_modality = self._detect_modality(use_case)
+        print(f"[MinoAnalyst] Detected modality: {detected_modality}")
+        
+        # If non-text modality detected, use multimodal analyst instead
+        if detected_modality != "text":
+            print(f"[MinoAnalyst] Non-text modality detected ({detected_modality}). Routing to multimodal analyst...")
+            try:
+                from .multimodal_analyst import MultimodalAnalyst, MultimodalRequirements
+                
+                # Convert priorities and requirements
+                multimodal_req = MultimodalRequirements(
+                    use_case=use_case,
+                    modality=detected_modality,
+                    priorities=priorities,
+                    monthly_budget_usd=monthly_budget_usd,
+                    expected_usage_per_month=expected_tokens_per_month or 1000,
+                    image_requirements={"needs_safety_filter": True} if detected_modality == "image" else None,
+                    video_requirements={"min_duration_sec": 5} if detected_modality == "video" else None,
+                    voice_requirements={"needs_emotions": True} if detected_modality == "voice" else None,
+                    three_d_requirements={"needs_optimization": True} if detected_modality == "3d" else None
+                )
+                
+                analyst = MultimodalAnalyst()
+                result = analyst.recommend(multimodal_req)
+                
+                # Convert multimodal result to MinoRecommendation format
+                benchmarks = result.get("benchmarks", {})
+                pricing = result.get("pricing", {})
+                
+                # Extract cost info based on modality
+                if detected_modality == "image":
+                    cost_per_unit = pricing.get("per_image", pricing.get("subscription", 0) / 1000)
+                    monthly_cost = cost_per_unit * (expected_tokens_per_month or 1000)
+                elif detected_modality == "video":
+                    cost_per_unit = pricing.get("per_second", pricing.get("subscription", 0) / 100)
+                    monthly_cost = cost_per_unit * (expected_tokens_per_month or 100)
+                elif detected_modality == "voice":
+                    cost_per_unit = pricing.get("per_1k_chars", pricing.get("per_1m_chars", 0) / 1000)
+                    monthly_cost = cost_per_unit * ((expected_tokens_per_month or 100000) / 1000)
+                else:  # 3d
+                    cost_per_unit = pricing.get("per_model", pricing.get("subscription", 0) / 100)
+                    monthly_cost = cost_per_unit * (expected_tokens_per_month or 100)
+                
+                # Build advantages from benchmarks
+                advantages = benchmarks.get("strengths", [])
+                disadvantages = benchmarks.get("weaknesses", [])
+                
+                # Build similar models from alternatives
+                similar_models = []
+                for alt in result.get("alternatives", [])[:3]:
+                    similar_models.append({
+                        "model": alt.get("model"),
+                        "provider": analyst.pricing_data.get(alt.get("model"), {}).get("provider", "Unknown"),
+                        "why_not": "; ".join(alt.get("reasons", []))
+                    })
+                
+                return MinoRecommendation(
+                    recommended_model=result.get("recommended_model"),
+                    provider=result.get("provider"),
+                    confidence=result.get("confidence"),
+                    reasoning=result.get("reasoning"),
+                    cost_per_1k_input=cost_per_unit / 1000 if detected_modality != "image" else cost_per_unit,
+                    cost_per_1k_output=cost_per_unit / 1000 if detected_modality != "image" else cost_per_unit,
+                    estimated_monthly_cost=monthly_cost,
+                    within_budget=monthly_cost <= (monthly_budget_usd or 999999),
+                    advantages=advantages,
+                    disadvantages=disadvantages,
+                    similar_models=similar_models,
+                    why_better=f"Best {detected_modality} generation model for your requirements",
+                    use_case_fit=result.get("reasoning"),
+                    technical_specs=benchmarks
+                )
+            except Exception as e:
+                print(f"[MinoAnalyst] Multimodal analyst failed: {e}")
+                import traceback
+                traceback.print_exc()
+                # Fall through to regular Mino call
+        
+        # For text LLMs, use Mino API
         tokens = expected_tokens_per_month or 5_000_000
         budget = monthly_budget_usd or 100
         
@@ -177,7 +330,9 @@ USER REQUIREMENTS:
 - Expected Usage: {tokens:,} tokens/month
 - Priorities: {json.dumps(priorities)}
 
-Available Models to Consider (Analyze ALL including Open Source):
+CRITICAL: This is a TEXT/CHAT/LLM use case. DO NOT recommend image/video/voice/3D generation models.
+
+Available TEXT LLM Models to Consider (Analyze ALL including Open Source):
 - OpenAI (GPT-4o, o1, GPT-4o-mini)
 - Anthropic (Claude 3.5 Sonnet, Haiku, Opus)
 - Google (Gemini 1.5 Pro/Flash, Gemini 2.0)
@@ -262,6 +417,15 @@ The JSON must follow this exact schema:
                 
                 result = json.loads(cleaned)
                 print(f"[MinoAnalyst] Successfully parsed JSON!")
+                
+                # VALIDATE: Ensure recommended model matches expected modality
+                recommended_model = result.get("recommended_model", "")
+                if not self._validate_model_modality(recommended_model, detected_modality):
+                    print(f"[MinoAnalyst] ⚠️ VALIDATION FAILED: {recommended_model} is not a {detected_modality} model!")
+                    print(f"[MinoAnalyst] Falling back to safe recommendation...")
+                    return self._fallback_recommendation(use_case, priorities, budget, tokens)
+                
+                print(f"[MinoAnalyst] ✅ Validation passed: {recommended_model} is a valid {detected_modality} model")
                 
                 # Calculate costs per 1K tokens
                 cost_per_1k_input = result.get("cost_per_1m_input", 0) / 1000
