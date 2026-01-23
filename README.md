@@ -1,347 +1,656 @@
-# Model Scout — SOTA Radar (Phase 1)
+# ModelScout - AI Model Recommendation Platform
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Phase-1_Vertical_Slice-22c55e?style=for-the-badge" alt="Phase 1">
-  <img src="https://img.shields.io/badge/Mino.ai-Powered-00d4aa?style=for-the-badge" alt="Mino.ai Powered">
-  <img src="https://img.shields.io/badge/React-18-61dafb?style=for-the-badge&logo=react" alt="React 18">
-  <img src="https://img.shields.io/badge/Flask-3.0-000000?style=for-the-badge&logo=flask" alt="Flask 3.0">
-  <img src="https://img.shields.io/badge/TypeScript-5.0-3178c6?style=for-the-badge&logo=typescript" alt="TypeScript">
-</p>
+![image.png](attachment:5218adc8-6f62-4449-8c4f-7538f11343bc:98465f28-4128-41f5-a397-7738d7939d79.png)
 
-> **"Easy to understand, easy to navigate, and highly presentable"**  
-> A unified dashboard that solves benchmark fragmentation for ML engineers.
+![image.png](attachment:3c3f33da-30b1-4b58-840d-5e389261100b:c80baf0f-001e-4f62-a176-4551f2219942.png)
 
----
+![image.png](attachment:d04e061b-33ed-48bf-9ea2-59fe4b44403b:image.png)
 
-## 🎯 Phase 1 Mission
+![image.png](attachment:8602aeea-dc68-4d21-84e7-d4716fc8a2a9:image.png)
 
-Build a **working vertical slice** of Model Scout: SOTA Radar that:
+## Overview
 
-- ✅ **Extracts real benchmark data** from 6 specialized sources
-- ✅ **Normalizes data** into a single transparent schema
-- ✅ **Visualizes model capability fingerprints** via radar charts
-- ✅ **Allows side-by-side model comparison**
-- ✅ **Streams live extraction logs** via SSE
+ModelScout is an AI-powered model recommendation platform that helps developers choose the right AI model for their specific use case. Using Mino AI as the intelligence layer, it analyzes user requirements and provides personalized recommendations with detailed reasoning, cost analysis, and comparisons.
+
+Unlike traditional benchmark aggregators, ModelScout focuses on intelligent recommendations based on your actual needs - not just raw benchmark scores.
 
 ---
 
-## 📊 Phase 1 Benchmarks (STRICT SCOPE)
+## 1. What Problem Does ModelScout Solve?
 
-| Category | Benchmark | URL | Metrics |
-|----------|-----------|-----|---------|
-| **General** | HuggingFace Open LLM Leaderboard | huggingface.co | MMLU, ARC, HellaSwag, TruthfulQA, WinoGrande, GSM8K |
-| **General** | LMSYS Chatbot Arena | lmarena.ai | Arena ELO, Win Rate |
-| **Economics** | Vellum LLM Leaderboard | vellum.ai | Input/Output Price, Speed, Latency, Context Window |
-| **Coding** | LiveCodeBench | livecodebench.github.io | Pass@1, HumanEval, MBPP |
-| **Safety** | MASK (Scale.com) | scale.com/leaderboard/mask | Lying Rate, Manipulation Score |
-| **Safety** | Vectara Hallucination | github.com/vectara | Hallucination Rate |
+**The Challenge**: With 100+ AI models available (GPT-4o, Claude, Gemini, Llama, DeepSeek, etc.), choosing the right one is overwhelming. Each has different:
 
-> ⚠️ **Do NOT add additional benchmarks** without explicit approval.
+- Pricing structures
+- Performance characteristics
+- Context window sizes
+- Latency profiles
+- Strengths and weaknesses
 
----
+**ModelScout's Solution**: Describe your use case in plain English, set your priorities (cost, quality, speed, context), and get a personalized recommendation with:
 
-## ✨ Features
-
-| Feature | Description |
-|---------|-------------|
-| **Radar Chart (Capability Fingerprint)** | 4-axis visualization: Logic, Coding, Economics, Safety |
-| **Model Comparison** | Side-by-side analysis with delta calculations |
-| **Live Terminal Feed** | Real-time SSE stream showing agent progress |
-| **Parallel Extraction** | `ThreadPoolExecutor(max_workers=5)` for concurrent Mino agents |
-| **Intelligent Caching** | SQLite WAL mode for efficient data persistence |
-| **SSE Keepalive** | Heartbeat comments every 10 seconds to prevent timeouts |
+- The best model for your specific needs
+- Detailed reasoning why it's the right choice
+- Cost breakdown (per 1K tokens + monthly estimate)
+- Advantages and disadvantages
+- Why it's better than alternatives
+- Technical specifications
 
 ---
 
-## 🏗️ Architecture
+## 2. Key Features
 
-```
-┌─────────────────────┐         ┌─────────────────────┐
-│   React Frontend    │◄───────►│   Vercel Edge       │
-│   (Vite + TS)       │   SSE   │   (Serverless)      │
-└────────┬────────────┘         └─────────────────────┘
-         │
-         │ REST + SSE Stream
-         ▼
-┌─────────────────────────────────────────────────────┐
-│              Flask Orchestrator (Railway)           │
-│         ThreadPoolExecutor (max_workers=5)          │
-│  ┌───────────┐ ┌───────────┐ ┌───────────┐         │
-│  │HuggingFace│ │LMSYS Arena│ │LiveCodeBench│        │
-│  └───────────┘ └───────────┘ └───────────┘         │
-│  ┌───────────┐ ┌───────────┐ ┌───────────┐         │
-│  │   Vellum  │ │   MASK    │ │  Vectara  │         │
-│  └───────────┘ └───────────┘ └───────────┘         │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│              Mino.ai SSE Endpoint                   │
-│         POST /v1/automation/run-sse                 │
-└─────────────────────────────────────────────────────┘
-```
+- **AI-Powered Recommendations** - Mino AI analyzes 30+ models to find the best fit
+- **Text LLM Support** - GPT-4o, Claude, Gemini, Llama, DeepSeek, Mistral, Qwen, etc.
+- **Multimodal Support** - Image (DALL-E, Stable Diffusion), Video (Runway, Pika), Voice (ElevenLabs), 3D (Meshy)
+- **Cost Analysis** - Per-token pricing + monthly cost estimates
+- **Budget-Aware** - Recommendations stay within your budget
+- **Comparison Mode** - See why the recommended model beats alternatives
+- **Use-Case Specific** - Tailored to your exact requirements
 
 ---
 
-## 🚀 Quick Start
+## 3. How It Works
 
-### Prerequisites
-
-- Node.js 18+
-- Python 3.11+
-- Mino.ai API Key
-
-### Frontend Setup
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-```
-
-### Backend Setup
-
-```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Add your MINO_API_KEY to .env
-
-# Start server
-python app.py
-```
-
-### Environment Variables
-
-#### Frontend (`.env`)
-```env
-VITE_API_URL=http://localhost:5000
-```
-
-#### Backend (`backend/.env`)
-```env
-MINO_API_KEY=your_mino_api_key_here
-PORT=5000
-```
+1. User describes their use case (e.g., "Build a code assistant for Python developers")
+2. User sets priorities: Cost, Quality, Speed, Context
+3. ModelScout sends request to Mino AI
+4. Mino analyzes 30+ models against requirements
+5. Mino AI returns intelligent recommendation with reasoning, cost analysis, advantages/disadvantages, and comparisons
+6. Frontend displays results with primary recommendation card, cost breakdown, strategic fit explanation, and strengths/weaknesses
 
 ---
 
-## 📡 API Reference
+## 4. API Reference
 
-### `POST /api/search`
-Search for a model across all Phase 1 benchmark sources.
+### POST /api/v2/analyst/recommend/ai
 
-**Request:**
+Get an AI-powered model recommendation using Mino.
+
+**Request**:
+
 ```json
 {
-  "model_name": "GPT-4o",
-  "sources": ["huggingface", "lmsys_arena", "livecodebench", "vellum", "mask", "vectara"]
+  "use_case": "Build a customer support chatbot",
+  "priorities": {
+    "cost": "medium",
+    "quality": "high",
+    "latency": "low",
+    "context_length": "medium"
+  },
+  "monthly_budget_usd": 500,
+  "expected_tokens_per_month": 10000000
 }
 ```
 
-**SSE Response Events:**
-```json
-{
-  "status": "running" | "completed" | "failed",
-  "benchmark": "HuggingFace Open LLM Leaderboard",
-  "message": "Connecting to source...",
-  "timestamp": "2026-01-20T15:56:23.000Z"
-}
-```
+**Response**:
 
----
-
-### `POST /api/compare`
-Compare two models side-by-side.
-
-**Request:**
-```json
-{
-  "model_a": "GPT-4o",
-  "model_b": "Claude 3.5 Sonnet",
-  "sources": ["huggingface", "lmsys_arena", "livecodebench", "vellum", "mask", "vectara"]
-}
-```
-
----
-
-### `GET /api/sources`
-Get available benchmark sources (Phase 1 only).
-
----
-
-### `GET /api/leaderboard`
-Get aggregated cross-benchmark leaderboard.
-
----
-
-## 🔄 Extraction Flow
-
-1. **Request Received**: Frontend sends model name to `/api/search`
-2. **Parallel Dispatch**: `ThreadPoolExecutor(max_workers=5)` spawns workers
-3. **Mino Extraction**: Each worker calls Mino with:
-   - Source URL
-   - Extraction goal (source-specific prompt)
-   - System prompt (exact extraction instructions)
-4. **SSE Streaming**: Events streamed back with 10-second keepalive
-5. **Normalization**: Raw scores normalized to 0-100 (higher always better)
-6. **Caching**: Results saved to SQLite (WAL mode)
-7. **Completion**: Final `complete` event sent
-
----
-
-## 📐 Normalization Logic
-
-All scores are normalized to **0-100** where **higher is always better**.
-
-```python
-# Standard percentage scores (0-100)
-normalized = score  # Already in range
-
-# ELO scores (1000-1500 range)
-normalized = ((elo - 1000) / 500) * 100
-
-# Lower-is-better metrics (hallucination_rate, lying_rate)
-normalized = 100 - score  # Inverted
-```
-
-### Metric Inversion Rules
-These metrics are inverted (lower raw score = higher normalized score):
-- `hallucination_rate`
-- `lying_rate`
-- `manipulation_score`
-- `deception_score`
-
----
-
-## 🆔 Model Identifier Mapping
-
-Raw model names from benchmarks are mapped to **canonical internal `model_id`**:
-
-| Raw Name | Canonical ID |
-|----------|--------------|
-| `gpt-4o` | `openai/gpt-4o` |
-| `claude-3.5-sonnet` | `anthropic/claude-3.5-sonnet` |
-| `gemini-1.5-pro` | `google/gemini-1.5-pro` |
-| `llama-3-70b-instruct` | `meta/llama-3-70b-instruct` |
-| `deepseek-v2-chat` | `deepseek/deepseek-v2-chat` |
-
-See `backend/config.py` → `MODEL_ID_MAPPING` for complete mapping.
-
----
-
-## 📂 Project Structure
-
-```
-modelscout/
-├── src/
-│   ├── components/
-│   │   ├── BenchmarkChart.tsx
-│   │   ├── ComparisonResults.tsx
-│   │   ├── CrossBenchmarkTable.tsx
-│   │   ├── ExpertiseRadarChart.tsx    # 4-axis radar chart
-│   │   ├── ModelComparisonSelector.tsx
-│   │   ├── SourceStatusCard.tsx
-│   │   ├── TerminalFeed.tsx           # Live SSE log viewer
-│   │   └── TopModelsCard.tsx
-│   ├── hooks/
-│   │   ├── useModelComparison.ts
-│   │   └── useLeaderboard.ts
-│   ├── pages/
-│   │   ├── Index.tsx                  # Model overview
-│   │   └── Compare.tsx                # Side-by-side comparison
-│   └── index.css
-├── backend/
-│   ├── app.py                         # Flask server + SSE keepalive
-│   ├── workers.py                     # Mino workers + ThreadPoolExecutor
-│   ├── database.py                    # SQLite WAL mode
-│   └── config.py                      # Phase 1 benchmarks + normalization
-└── docs/
-    └── MODEL_SCOUT_QUALIFIED_SUBMISSION.md
-```
-
----
-
-## 🚢 Deployment
-
-### Frontend (Vercel)
-1. Connect GitHub repository to Vercel
-2. Set `VITE_API_URL` to your Railway backend URL
-3. Deploy
-
-### Backend (Railway)
-1. Connect GitHub repository to Railway
-2. Set environment variables (`MINO_API_KEY`, `PORT`)
-3. Deploy
-
----
-
-## ⚠️ Known Limitations (Phase 1)
-
-1. **No authentication** - Open access only
-2. **No real-time updates** - Data is cached for 24 hours
-3. **No time-series diffs** - Historical comparison not implemented
-4. **Mock leaderboard** - `/api/leaderboard` returns sample data
-5. **Limited model mapping** - Not all model name variants covered
-
----
-
-## 🔒 Mino API Contract
-
-Mino is a **stateless extraction worker**.
-
-**Input:**
-```json
-{
-  "url": "https://huggingface.co/spaces/...",
-  "goal": "Search for model X and extract scores...",
-  "systemPrompt": "You are an autonomous benchmark extraction agent..."
-}
-```
-
-**Output (Success):**
 ```json
 {
   "status": "success",
-  "payload": {
-    "benchmark": "HuggingFace Open LLM Leaderboard",
-    "model": "GPT-4o",
-    "metrics": { "mmlu": 88.7, "arc": 85.2 },
-    "rank": 1,
-    "source_url": "https://...",
-    "timestamp_utc": "2026-01-20T15:56:23Z"
-  },
-  "error_code": null
+  "recommendation": {
+    "recommended_model": "Claude 3.5 Sonnet",
+    "provider": "Anthropic",
+    "confidence": "high",
+    "reasoning": "Claude 3.5 Sonnet excels at customer support tasks with superior instruction following, natural conversation flow, and strong safety guardrails. Its 200K context window handles long conversation histories efficiently.",
+    "cost_analysis": {
+      "per_1k_input_tokens": 0.003,
+      "per_1k_output_tokens": 0.015,
+      "estimated_monthly_usd": 112.50,
+      "within_budget": true
+    },
+    "advantages": [
+      "Excellent instruction following for support scenarios",
+      "Natural, empathetic conversation style",
+      "Strong safety and refusal handling",
+      "200K context window for conversation history",
+      "Fast response times (~500ms)"
+    ],
+    "disadvantages": [
+      "Slightly higher cost than GPT-4o-mini",
+      "No native function calling (requires prompt engineering)",
+      "Limited to text-only (no vision)"
+    ],
+    "similar_models": [
+      {
+        "model": "GPT-4o",
+        "provider": "OpenAI",
+        "why_not": "While GPT-4o has better function calling, Claude 3.5 Sonnet's superior instruction following and safety make it better for customer support where empathy and accuracy are critical."
+      },
+      {
+        "model": "Gemini 1.5 Pro",
+        "provider": "Google",
+        "why_not": "Gemini has a larger context window (1M tokens) but Claude's conversation quality and lower latency make it more suitable for real-time support."
+      }
+    ],
+    "why_better": "Claude 3.5 Sonnet strikes the perfect balance for customer support: high-quality responses, fast latency, reasonable cost, and excellent safety - all critical for production support chatbots.",
+    "use_case_fit": "Ideal for customer support chatbots requiring empathetic, accurate responses with strong safety guardrails and conversation history tracking.",
+    "technical_specs": {
+      "context_window": 200000,
+      "supports_streaming": true,
+      "latency_estimate_ms": 500
+    },
+    "models_analyzed": 32
+  }
 }
 ```
 
-**Output (Failure):**
+---
+
+### POST /api/v2/analyst/recommend/multimodal
+
+Get recommendations for non-text AI models (image, video, voice, 3D).
+
+**Request**:
+
 ```json
 {
-  "status": "failure",
-  "payload": null,
-  "error_code": "UNREADABLE_FORMAT" | "SITE_BLOCKED" | "LAYOUT_CHANGED"
+  "use_case": "Generate product images for e-commerce",
+  "modality": "image",
+  "priorities": {
+    "quality": "high",
+    "cost": "medium",
+    "speed": "high"
+  },
+  "monthly_budget_usd": 100,
+  "expected_usage_per_month": 1000,
+  "image_requirements": {
+    "min_resolution": 1024,
+    "needs_safety_filter": true,
+    "needs_style_diversity": true
+  }
+}
+```
+
+**Response**:
+
+```json
+{
+  "status": "success",
+  "modality": "image",
+  "recommendation": {
+    "recommended_model": "DALL-E 3",
+    "provider": "OpenAI",
+    "reasoning": "DALL-E 3 offers the best prompt adherence (95/100) and built-in safety filters, critical for e-commerce product images. Its style diversity (88/100) ensures varied product presentations.",
+    "score": 89,
+    "benchmarks": {
+      "image_quality_score": 92,
+      "prompt_adherence": 95,
+      "style_diversity": 88,
+      "resolution_max": 1024,
+      "generation_time_sec": 15,
+      "nsfw_filter": true
+    },
+    "pricing": {
+      "per_image": 0.04,
+      "provider": "OpenAI"
+    },
+    "estimated_monthly_cost": 40.00,
+    "fits_budget": true,
+    "confidence": "high",
+    "alternatives": [
+      {
+        "model": "Stable Diffusion XL",
+        "score": 82,
+        "reasons": ["Very fast (8 sec)", "Lower cost ($0.02/image)", "Open source"]
+      },
+      {
+        "model": "Midjourney v6",
+        "score": 85,
+        "reasons": ["Highest quality (95/100)", "Best style diversity (92/100)"]
+      }
+    ]
+  }
 }
 ```
 
 ---
 
-## 📄 License
+## 5. Code Examples
 
-MIT © Tinyfish
+### cURL
+
+```bash
+# Text LLM Recommendation
+curl -X POST "https://modelscout-production.up.railway.app/api/v2/analyst/recommend/ai" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "use_case": "Build a code assistant for Python developers",
+    "priorities": {
+      "cost": "low",
+      "quality": "high",
+      "latency": "medium",
+      "context_length": "medium"
+    },
+    "monthly_budget_usd": 100,
+    "expected_tokens_per_month": 5000000
+  }'
+
+# Multimodal Recommendation
+curl -X POST "https://modelscout-production.up.railway.app/api/v2/analyst/recommend/multimodal" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "use_case": "Generate marketing videos",
+    "modality": "video",
+    "priorities": {
+      "quality": "high",
+      "cost": "medium",
+      "speed": "medium"
+    },
+    "monthly_budget_usd": 500,
+    "expected_usage_per_month": 100
+  }'
+```
+
+### TypeScript
+
+```tsx
+interface Recommendation {
+  recommended_model: string;
+  provider: string;
+  confidence: "high" | "medium" | "low";
+  reasoning: string;
+  cost_analysis: {
+    per_1k_input_tokens: number;
+    per_1k_output_tokens: number;
+    estimated_monthly_usd: number;
+    within_budget: boolean;
+  };
+  advantages: string[];
+  disadvantages: string[];
+  similar_models: Array<{
+    model: string;
+    provider: string;
+    why_not: string;
+  }>;
+  why_better: string;
+  use_case_fit: string;
+  technical_specs: {
+    context_window: number;
+    supports_streaming: boolean;
+    latency_estimate_ms: number;
+  };
+  models_analyzed?: number;
+}
+
+async function getRecommendation(
+  useCase: string,
+  priorities: {
+    cost: "low" | "medium" | "high";
+    quality: "low" | "medium" | "high";
+    latency: "low" | "medium" | "high";
+    context_length: "short" | "medium" | "long";
+  },
+  monthlyBudget: number,
+  expectedTokens: number
+): Promise<Recommendation> {
+  const response = await fetch(
+    "https://modelscout-production.up.railway.app/api/v2/analyst/recommend/ai",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        use_case: useCase,
+        priorities,
+        monthly_budget_usd: monthlyBudget,
+        expected_tokens_per_month: expectedTokens,
+      }),
+    }
+  );
+
+  const data = await response.json();
+  return data.recommendation;
+}
+
+// Usage
+const recommendation = await getRecommendation(
+  "Build a chatbot for customer support",
+  { cost: "medium", quality: "high", latency: "low", context_length: "medium" },
+  500,
+  10_000_000
+);
+
+console.log(`Recommended: ${recommendation.recommended_model}`);
+console.log(`Cost: $${recommendation.cost_analysis.estimated_monthly_usd}/month`);
+console.log(`Reasoning: ${recommendation.reasoning}`);
+```
+
+### Python
+
+```python
+import requests
+
+def get_model_recommendation(
+    use_case: str,
+    priorities: dict,
+    monthly_budget: float,
+    expected_tokens: int
+) -> dict:
+    response = requests.post(
+        "https://modelscout-production.up.railway.app/api/v2/analyst/recommend/ai",
+        headers={"Content-Type": "application/json"},
+        json={
+            "use_case": use_case,
+            "priorities": priorities,
+            "monthly_budget_usd": monthly_budget,
+            "expected_tokens_per_month": expected_tokens
+        }
+    )
+    return response.json()["recommendation"]
+
+# Usage
+recommendation = get_model_recommendation(
+    use_case="Build a code assistant for Python developers",
+    priorities={
+        "cost": "low",
+        "quality": "high",
+        "latency": "medium",
+        "context_length": "medium"
+    },
+    monthly_budget=100,
+    expected_tokens=5_000_000
+)
+
+print(f"Recommended Model: {recommendation['recommended_model']}")
+print(f"Provider: {recommendation['provider']}")
+print(f"Monthly Cost: ${recommendation['cost_analysis']['estimated_monthly_usd']:.2f}")
+print(f"\nReasoning: {recommendation['reasoning']}")
+print(f"\nAdvantages:")
+for advantage in recommendation['advantages']:
+    print(f"  - {advantage}")
+print(f"\nDisadvantages:")
+for disadvantage in recommendation['disadvantages']:
+    print(f"  - {disadvantage}")
+```
 
 ---
 
-<p align="center">
-  <strong>Built with ❤️ by Tinyfish Solutions Engineering</strong>
-</p>
+## 6. Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         USER INTERFACE                           │
+│                    (React + TypeScript + Vite)                   │
+│                                                                  │
+│  ┌───────────┐ ┌───────────┐ ┌───────────┐                      │
+│  │ Text LLM  │ │Multimodal │ │ Compare   │                      │
+│  │   Form    │ │   Form    │ │   Modal   │                      │
+│  └───────────┘ └───────────┘ └───────────┘                      │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      RAILWAY BACKEND                             │
+│                     (Flask + Python)                             │
+│                                                                  │
+│  POST /api/v2/analyst/recommend/ai                               │
+│    ├── Parse user requirements                                  │
+│    ├── Detect modality (text/image/video/voice/3d)              │
+│    ├── Route to appropriate analyst                             │
+│    └── Return recommendation with reasoning                     │
+│                                                                  │
+│  POST /api/v2/analyst/recommend/multimodal                       │
+│    ├── Parse modality-specific requirements                     │
+│    ├── Score models dynamically                                 │
+│    ├── Apply budget constraints                                 │
+│    └── Return top recommendation + alternatives                 │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         MINO AI API                              │
+│                                                                  │
+│  Intelligent Analysis:                                           │
+│  ├── Analyzes 30+ text LLM models                               │
+│  ├── Considers user's specific use case                         │
+│  ├── Evaluates cost vs quality tradeoffs                        │
+│  ├── Compares against alternatives                              │
+│  └── Returns structured recommendation with reasoning           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Frontend (React + TypeScript + Vite)**
+
+- Text LLM Form
+- Multimodal Form
+- Compare Modal
+
+**Backend (Flask + Python on Railway)**
+
+- POST /api/v2/analyst/recommend/ai
+    - Parse user requirements
+    - Detect modality (text/image/video/voice/3d)
+    - Route to appropriate analyst
+    - Return recommendation with reasoning
+- POST /api/v2/analyst/recommend/multimodal
+    - Parse modality-specific requirements
+    - Score models dynamically
+    - Apply budget constraints
+    - Return top recommendation + alternatives
+
+**Mino AI API**
+
+- Analyzes 30+ text LLM models
+- Considers user's specific use case
+- Evaluates cost vs quality tradeoffs
+- Compares against alternatives
+- Returns structured recommendation with reasoning
+
+---
+
+## 7. Model Coverage
+
+### Text LLMs
+
+Mino AI has access to comprehensive, up-to-date information about all major AI models through its knowledge base. It dynamically analyzes models from:
+
+- **OpenAI** (GPT-4o, o1, GPT-4 Turbo, GPT-4o-mini, etc.)
+- **Anthropic** (Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku, etc.)
+- **Google** (Gemini 2.0 Pro/Flash, Gemini 1.5 Pro/Flash, etc.)
+- **Meta** (Llama 3.3, Llama 3.1, Llama 3.2, etc.)
+- **DeepSeek** (V3, R1, V2.5, Coder, etc.)
+- **Mistral** (Large 2, Medium, Mixtral, etc.)
+- **Alibaba** (Qwen 2.5 series)
+- **Microsoft** (Phi-3 series)
+- [**01.AI**](http://01.AI) (Yi series)
+- And many more...
+
+No hardcoded lists - Mino AI stays current with the latest model releases and can recommend any model it has knowledge of, including newly released models.
+
+### Multimodal Models (Pattern-Based Detection)
+
+For non-text modalities, ModelScout uses a multimodal analyst with benchmark data for:
+
+**Image Generation**: DALL-E 3, DALL-E 2, Stable Diffusion XL, Midjourney v6, Imagen 2, Adobe Firefly
+
+**Video Generation**: Runway Gen-2, Pika 1.0, Stable Video Diffusion, Sora
+
+**Voice/Audio**: ElevenLabs (Turbo, Multilingual), OpenAI TTS-1/TTS-1-HD, Google WaveNet, Amazon Polly, Resemble AI
+
+**3D Generation**: Meshy-3, Luma Genie, Spline AI, Point-E
+
+---
+
+## 8. How Recommendations Work
+
+### Text LLMs (Mino AI-Powered)
+
+1. User Input: Describe use case + set priorities
+2. Mino Analysis: Mino AI analyzes requirements against 30+ models
+3. Intelligent Scoring: Considers use case fit, cost constraints, quality requirements, latency needs, context window requirements
+4. Comparison: Compares top candidates
+5. Recommendation: Returns best model with detailed reasoning
+
+No hardcoded rules - Mino AI dynamically evaluates based on your specific needs.
+
+### Multimodal (Pattern-Based Scoring)
+
+1. Modality Detection: Auto-detects from use case keywords
+2. Benchmark Scoring: Uses modality-specific metrics (quality, prompt adherence, style diversity, etc.)
+3. Dynamic Ranking: Scores models based on priorities
+4. Budget Filter: Removes models exceeding budget
+5. Top 3: Returns best + 2 alternatives
+
+---
+
+## 9. Cost Analysis
+
+ModelScout provides transparent cost breakdowns:
+
+### Per-Token Pricing
+
+- **Input tokens**: Cost per 1,000 input tokens
+- **Output tokens**: Cost per 1,000 output tokens
+
+### Monthly Estimates
+
+Based on expected usage:
+
+- Assumes 75% input / 25% output split
+- Calculates: (input_tokens × input_price) + (output_tokens × output_price)
+- Shows if within budget
+
+### Example
+
+```
+Use case: Customer support chatbot
+Expected usage: 10M tokens/month
+Budget: $500/month
+
+Recommendation: Claude 3.5 Sonnet
+- Input: $0.003 per 1K tokens
+- Output: $0.015 per 1K tokens
+- Monthly estimate: $112.50
+- Within budget: Yes
+```
+
+---
+
+## 10. Deployment
+
+### Frontend (Vercel)
+
+- **Platform**: Vercel Edge
+- **Framework**: Vite + React + TypeScript
+- **URL**: https://modelscout-de997072.vercel.app
+
+### Backend (Railway)
+
+- **Platform**: Railway
+- **Runtime**: Python 3.11 + Flask + Gunicorn
+- **URL**: https://modelscout-production.up.railway.app
+
+### Environment Variables
+
+**Backend** (`backend/.env`):
+
+```
+MINO_API_KEY=your_mino_api_key_here
+PORT=5000
+FLASK_ENV=production
+```
+
+**Frontend** (`.env`):
+
+```
+VITE_API_URL=https://modelscout-production.up.railway.app
+```
+
+---
+
+## 11. Key Differentiators
+
+**ModelScout vs Competitors:**
+
+- **Recommendation Engine**: AI-powered (Mino) vs Manual rules or none
+- **Use-Case Specific**: Tailored to your exact needs vs Generic rankings
+- **Cost Analysis**: Per-token + monthly estimates vs No cost info
+- **Budget-Aware**: Stays within your budget vs No budget consideration
+- **Multimodal Support**: Text, Image, Video, Voice, 3D vs Text only
+- **Reasoning**: Detailed explanation why vs No explanation
+- **Alternatives**: Shows why others weren't chosen vs No comparison
+- **Dynamic**: Analyzes 30+ models in real-time vs Fixed recommendations
+
+---
+
+## 12. Technical Stack
+
+### Frontend
+
+- **Framework**: React 18 + TypeScript 5
+- **Build Tool**: Vite
+- **UI Library**: shadcn/ui + Tailwind CSS
+- **State Management**: React Hooks
+- **Routing**: React Router v6
+
+### Backend
+
+- **Framework**: Flask 3.0
+- **Language**: Python 3.11
+- **WSGI Server**: Gunicorn
+- **Database**: SQLite (WAL mode)
+- **AI Engine**: Mino AI API
+
+### Infrastructure
+
+- **Frontend**: Vercel Edge Network
+- **Backend**: Railway
+- **Database**: SQLite (ephemeral, Railway volume)
+
+---
+
+## 13. Known Limitations
+
+### Current Limitations
+
+**Text LLM / Multimodal Recommendations**:
+
+- Depends on Mino AI API availability and response quality
+- Recommendations are based on data already published on internet
+- Cost estimates assume 75/25 input/output split (may vary by use case)
+- No real-time pricing updates (uses general pricing knowledge)
+- No integration with model provider APIs for live data
+
+**General**:
+
+- No user authentication or accounts
+- No saved recommendation history
+- No A/B testing of recommendations
+- No feedback loop to improve suggestions
+- Budget estimates are approximations, not guarantees
+- Requires Mino API key for recommendations
+
+### Future Improvements
+
+Planned enhancements to address these limitations:
+
+- Real-time pricing API integration
+- User accounts with recommendation history
+- Feedback system to improve accuracy
+- Automated benchmark updates
+- Fine-tuning cost calculator
+- Team collaboration features
+
+---
+
+## 14. Use Cases
+
+ModelScout is ideal for:
+
+- **Developers** choosing models for new projects
+- **Product Managers** evaluating AI integration costs
+- **Startups** optimizing AI spending within budget
+- **Enterprises** standardizing model selection
+- **Researchers** comparing model capabilities
+- **Students** learning about AI model landscape
+
+---
+
+## 15. Getting Started
+
+### Quick Start (3 steps)
+
+1. **Visit**: https://modelscout-de997072.vercel.app
+2. **Describe** your use case in plain English
+3. **Get** a personalized recommendation with cost analysis
+
+### API Integration

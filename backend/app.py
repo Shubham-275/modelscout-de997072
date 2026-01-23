@@ -7,6 +7,7 @@ PHASE 1 REQUIREMENTS:
 - Keepalive comments every 10 seconds
 - Close streams deterministically on completion or failure
 """
+import os
 import json
 import time
 import threading
@@ -20,7 +21,31 @@ from workers import parallel_snipe, parallel_compare
 from database import get_model_history, get_cached_result, get_connection
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:8080", "http://localhost:3000", "*"])
+
+# SECURE CORS Configuration - Environment-based
+# Development: Allow localhost origins
+# Production: Only allow explicitly configured origins
+if os.environ.get("FLASK_ENV") == "development":
+    # Development mode - allow common dev ports
+    allowed_origins = [
+        "http://localhost:8080",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173"
+    ]
+    CORS(app, origins=allowed_origins, supports_credentials=True)
+else:
+    # Production mode - only allow configured origins
+    allowed_origins_str = os.environ.get("ALLOWED_ORIGINS", "")
+    if allowed_origins_str:
+        allowed_origins = [origin.strip() for origin in allowed_origins_str.split(",")]
+        CORS(app, origins=allowed_origins, supports_credentials=True)
+    else:
+        # No CORS if no origins configured (fail-safe)
+        print("⚠️  WARNING: No ALLOWED_ORIGINS configured. CORS disabled for security.")
+        CORS(app, origins=[], supports_credentials=False)
 
 # Phase 2: Register Phase 2 API blueprint
 try:
@@ -149,15 +174,30 @@ def search_model():
         "message": "string"
     }
     """
+    from validation import validate_model_name, validate_source_key, ValidationError
+    
     data = request.json or {}
     model_name = data.get("model_name")
     sources = data.get("sources", list(BENCHMARK_SOURCES.keys()))
     
+    # Validate model name
     if not model_name:
         return jsonify({"error": "model_name is required"}), 400
     
-    # Validate sources are in Phase 1 scope
-    valid_sources = [s for s in sources if s in BENCHMARK_SOURCES]
+    try:
+        model_name = validate_model_name(model_name)
+    except ValidationError as e:
+        return jsonify({"error": str(e)}), 400
+    
+    # Validate sources
+    try:
+        valid_sources = []
+        for source in sources:
+            validated = validate_source_key(source, list(BENCHMARK_SOURCES.keys()))
+            valid_sources.append(validated)
+    except ValidationError as e:
+        return jsonify({"error": str(e)}), 400
+    
     if not valid_sources:
         return jsonify({"error": "No valid sources specified"}), 400
     
@@ -342,7 +382,19 @@ def get_leaderboard():
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
-    debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+    
+    # SECURITY: Never enable debug mode in production
+    # Debug mode can expose sensitive information and allow code execution
+    flask_env = os.environ.get("FLASK_ENV", "production")
+    debug = False
+    
+    if flask_env == "development":
+        # Only allow debug in explicit development mode
+        debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+        if debug:
+            print("⚠️  WARNING: Debug mode is enabled. Do not use in production!")
+    else:
+        print("ℹ️  Running in production mode (debug disabled)")
     
     print(f"[*] Model Scout Orchestrator starting on port {port}")
     print(f"[*] Phase 1 - Vertical Slice")

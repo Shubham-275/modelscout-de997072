@@ -21,7 +21,20 @@ load_dotenv()
 # =============================================================================
 
 MINO_API_URL = "https://mino.ai/v1/automation/run-sse"
-MINO_API_KEY = os.environ.get("MINO_API_KEY", "")
+MINO_API_KEY = os.environ.get("MINO_API_KEY")
+
+# Validate API key is set
+if not MINO_API_KEY:
+    raise ValueError(
+        "MINO_API_KEY environment variable is required but not set. "
+        "Please set MINO_API_KEY in your .env file or environment variables."
+    )
+
+if len(MINO_API_KEY) < 10:
+    raise ValueError(
+        "MINO_API_KEY appears to be invalid (too short). "
+        "Please check your API key configuration."
+    )
 
 
 # =============================================================================

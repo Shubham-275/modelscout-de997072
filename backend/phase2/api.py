@@ -1,19 +1,4 @@
-"""
-Model Scout - Phase 2 API Endpoints
 
-PHASE 2 ENDPOINTS:
-- /api/v2/prs/<model_id> - Compute and return PRS with full breakdown
-- /api/v2/snapshots - Snapshot management
-- /api/v2/snapshots/<snapshot_id>/diff - Temporal diff
-- /api/v2/regressions - Regression detection and history
-- /api/v2/frontier - Cost-performance frontier
-
-DATA TRANSPARENCY GUARANTEES:
-- Raw benchmark values always accessible
-- Composite scores never hide inputs
-- Hover/tooltips must expose formulas
-- PRS explicitly labeled as non-ranking
-"""
 
 from flask import Blueprint, request, jsonify
 from datetime import datetime
@@ -72,18 +57,7 @@ def ensure_schema():
 
 @phase2_api.route('/prs/<model_id>', methods=['GET'])
 def get_model_prs(model_id: str):
-    """
-    Compute Performance Reliability Score for a model.
     
-    PRS is a NON-RANKING metric. It does not imply preference.
-    
-    Query params:
-    - snapshot_id: Optional specific snapshot (defaults to latest)
-    - include_history: Include PRS history (default: false)
-    
-    Returns:
-        Full PRS breakdown with audit trail
-    """
     snapshot_id = request.args.get('snapshot_id')
     include_history = request.args.get('include_history', 'false').lower() == 'true'
     
