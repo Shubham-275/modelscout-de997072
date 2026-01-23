@@ -65,9 +65,16 @@ except ImportError as e:
     PHASE2_AVAILABLE = False
 
 
+# SECURITY: Limit concurrent SSE connections to prevent DoS
+MAX_SSE_CONNECTIONS = 20
+sse_semaphore = threading.Semaphore(MAX_SSE_CONNECTIONS)
+
+
 def sse_stream_with_keepalive(event_generator):
     """
     Wrap an event generator with SSE keepalive comments.
+    
+    SECURITY: Limited to MAX_SSE_CONNECTIONS concurrent streams.
     
     Per spec:
     - Emit keepalive comments every 10 seconds
@@ -77,49 +84,58 @@ def sse_stream_with_keepalive(event_generator):
     - Data events: "data: {...}\n\n"
     - Comments (keepalive): ": keepalive\n\n"
     """
-    event_queue = Queue()
-    is_complete = threading.Event()
+    # SECURITY: Acquire semaphore or reject connection
+    if not sse_semaphore.acquire(blocking=False):
+        yield f"data: {json.dumps({'type': 'error', 'message': 'Too many active streams. Please try again later.'})}\n\n"
+        return
     
-    def producer():
-        """Run the event generator in a background thread."""
-        try:
-            for event in event_generator:
-                event_queue.put(("data", event))
-                if event.get("type") == "complete":
-                    break
-        except Exception as e:
-            event_queue.put(("error", str(e)))
-        finally:
-            is_complete.set()
-            event_queue.put(("done", None))
-    
-    # Start producer thread
-    producer_thread = threading.Thread(target=producer, daemon=True)
-    producer_thread.start()
-    
-    last_event_time = time.time()
-    
-    while True:
-        try:
-            # Wait for events with timeout for keepalive
-            event_type, event_data = event_queue.get(timeout=SSE_KEEPALIVE_INTERVAL)
-            
-            if event_type == "done":
-                break
-            elif event_type == "error":
-                yield f"data: {json.dumps({'type': 'error', 'message': event_data})}\n\n"
-                break
-            elif event_type == "data":
-                yield f"data: {json.dumps(event_data)}\n\n"
-                last_event_time = time.time()
+    try:
+        event_queue = Queue()
+        is_complete = threading.Event()
+        
+        def producer():
+            """Run the event generator in a background thread."""
+            try:
+                for event in event_generator:
+                    event_queue.put(("data", event))
+                    if event.get("type") == "complete":
+                        break
+            except Exception as e:
+                event_queue.put(("error", str(e)))
+            finally:
+                is_complete.set()
+                event_queue.put(("done", None))
+        
+        # Start producer thread
+        producer_thread = threading.Thread(target=producer, daemon=True)
+        producer_thread.start()
+        
+        last_event_time = time.time()
+        
+        while True:
+            try:
+                # Wait for events with timeout for keepalive
+                event_type, event_data = event_queue.get(timeout=SSE_KEEPALIVE_INTERVAL)
                 
-        except Empty:
-            # No event received within timeout, send keepalive
-            if is_complete.is_set():
-                break
-            # SSE comment (keepalive) - per spec
-            yield f": keepalive {datetime.utcnow().isoformat()}\n\n"
-            last_event_time = time.time()
+                if event_type == "done":
+                    break
+                elif event_type == "error":
+                    yield f"data: {json.dumps({'type': 'error', 'message': event_data})}\n\n"
+                    break
+                elif event_type == "data":
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                    last_event_time = time.time()
+                    
+            except Empty:
+                # No event received within timeout, send keepalive
+                if is_complete.is_set():
+                    break
+                # SSE comment (keepalive) - per spec
+                yield f": keepalive {datetime.utcnow().isoformat()}\n\n"
+                last_event_time = time.time()
+    finally:
+        # SECURITY: Always release semaphore
+        sse_semaphore.release()
 
 
 @app.route("/health", methods=["GET"])
