@@ -1,8 +1,18 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+// SECURITY: Only allow specific origins, not wildcard
+const ALLOWED_ORIGINS = [
+  'https://modelscout-de997072.vercel.app',
+  'http://localhost:8080',
+  'http://localhost:5173',
+];
+
+const corsHeaders = (origin: string | null) => {
+  const isAllowed = origin && ALLOWED_ORIGINS.includes(origin);
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
 };
 
 const MINO_API_URL = 'https://mino.ai/v1/automation/run-sse';
@@ -42,7 +52,7 @@ Deno.serve(async (req) => {
     const goalPrompt = `Analyze the target leaderboard. Locate the model matching '${model_name}'. Handle dynamic table loading and pagination if necessary. Extract the Overall Rank, Average Score, and three secondary metrics (e.g., Elo, MMLU, Coding). Return a strict JSON array with keys: source, model, rank, score, and secondary_metrics.`;
 
     const sourceList = sources || ['HuggingFace', 'LMSYS', 'PapersWithCode'];
-    
+
     console.log(`[Mino Proxy] Starting search for model: ${model_name}`);
     console.log(`[Mino Proxy] Sources: ${sourceList.join(', ')}`);
 
@@ -64,9 +74,9 @@ Deno.serve(async (req) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[Mino Proxy] Mino API error: ${response.status} - ${errorText}`);
-      return new Response(JSON.stringify({ 
+      return new Response(JSON.stringify({
         error: `Mino API error: ${response.status}`,
-        details: errorText 
+        details: errorText
       }), {
         status: response.status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -93,7 +103,7 @@ Deno.serve(async (req) => {
 
         while (true) {
           const { done, value } = await reader.read();
-          
+
           if (done) {
             console.log('[Mino Proxy] Stream completed');
             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
