@@ -18,15 +18,18 @@ const corsHeaders = (origin: string | null) => {
 const MINO_API_URL = 'https://mino.ai/v1/automation/run-sse';
 
 Deno.serve(async (req) => {
+  const origin = req.headers.get('origin');
+  const headers = corsHeaders(origin);
+
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers });
   }
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...headers, 'Content-Type': 'application/json' },
     });
   }
 
@@ -36,7 +39,7 @@ Deno.serve(async (req) => {
     if (!model_name) {
       return new Response(JSON.stringify({ error: 'model_name is required' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...headers, 'Content-Type': 'application/json' },
       });
     }
 
@@ -44,7 +47,7 @@ Deno.serve(async (req) => {
     if (!MINO_API_KEY) {
       return new Response(JSON.stringify({ error: 'MINO_API_KEY not configured' }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...headers, 'Content-Type': 'application/json' },
       });
     }
 
@@ -79,7 +82,7 @@ Deno.serve(async (req) => {
         details: errorText
       }), {
         status: response.status,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...headers, 'Content-Type': 'application/json' },
       });
     }
 
@@ -134,7 +137,7 @@ Deno.serve(async (req) => {
 
     return new Response(readable, {
       headers: {
-        ...corsHeaders,
+        ...headers,
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
@@ -145,7 +148,7 @@ Deno.serve(async (req) => {
     console.error('[Mino Proxy] Error:', error);
     return new Response(JSON.stringify({ error: String(error) }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...headers, 'Content-Type': 'application/json' },
     });
   }
 });

@@ -45,3 +45,13 @@ ENV/
 *.njsproj
 *.sln
 *.sw?
+
+# Security documentation (keep local only)
+SECURITY_*.md
+CRITICAL_*.md
+VULNERABILITIES_*.md
+FRONTEND_SECURITY_*.md
+CLEANUP_*.md
+RAILWAY_*.md
+PROJECT_STATUS.md
+
