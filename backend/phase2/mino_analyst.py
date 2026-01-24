@@ -549,12 +549,104 @@ Return ONLY valid JSON (no markdown formatting):
         yield {"type": "log", "message": f"Detected modality: {detected_modality}"}
         
         if detected_modality != "text":
-            yield {"type": "log", "message": f"Routing to specialist {detected_modality} analyst..."}
+            yield {"type": "log", "message": f"Deploying {detected_modality.upper()} Specialist Squad..."}
+            
+            # Define Multimodal Scouts
+            mm_scouts = [
+                {
+                    "name": f"{detected_modality.capitalize()} Capability Scout",
+                    "prompt": f"List top 3 AI models specifically for {detected_modality} generation/analysis. Use Case: '{use_case}'. Return JSON list with capabilities."
+                },
+                {
+                    "name": "Benchmarks Scout",
+                    "prompt": f"Find performance metrics for {detected_modality} models (e.g. FID, CLIP score, latency). Compare top contenders. Return JSON."
+                },
+                {
+                    "name": "Creative Pricing Scout",
+                    "prompt": f"Calculate costs for {detected_modality} workflow. Budget: ${monthly_budget_usd}. Note: Pricing is often per-image/second. Return JSON analysis."
+                }
+            ]
+            
+            mm_results = {}
+            mm_text = ""
+            
             try:
-                res = self.recommend(use_case, priorities, monthly_budget_usd, expected_tokens_per_month)
-                yield {"type": "result", "data": res.to_dict()}
+                # Run Parallel Scouts
+                for event in self._run_parallel_scouts(mm_scouts):
+                    if event.get("type") == "log":
+                        yield event
+                    elif event.get("type") == "internal_complete":
+                        mm_results = event.get("data", {})
+                
+                # Format for Aggregator
+                if mm_results:
+                    for name, data in mm_results.items():
+                        mm_text += f"\n--- {name.upper()} ---\n{data}\n"
+                    yield {"type": "log", "message": "Multimodal intelligence acquired. Synthesizing..."}
+                
+                # Aggregator (Multimodal Specialist)
+                mm_aggregator_prompt = f"""You are a Multimodal AI Expert.
+Synthesize these reports into a FINAL recommendation for a {detected_modality} use case.
+
+User Request: {use_case}
+Budget: ${monthly_budget_usd}
+
+--- SCOUT DATA ---
+{mm_text}
+
+Return ONLY valid JSON:
+{{
+  "recommended_model": "Model Name",
+  "provider": "Provider",
+  "confidence": "high",
+  "reasoning": "Why this is best for {detected_modality}...",
+  "cost_per_1k_input": 0,
+  "cost_per_1k_output": 0,
+  "estimated_monthly_cost": 0,
+  "within_budget": true,
+  "advantages": ["..."],
+  "disadvantages": ["..."],
+  "similar_models": [{{ "model": "Alt", "provider": "...", "why_not": "..." }}],
+  "why_better": "...",
+  "use_case_fit": "...",
+  "technical_specs": {{ "resolution": "...", "formats": "..." }}
+}}
+"""
+                final_res = self._call_mino(mm_aggregator_prompt)
+                
+                if final_res:
+                     # Reuse the same safe parsing logic as main flow
+                     cleaned = final_res.strip()
+                     if "```" in cleaned:
+                         parts = cleaned.split("```")
+                         if len(parts) >= 2:
+                             cleaned = parts[1]
+                             if cleaned.startswith("json"):
+                                  cleaned = cleaned[4:].strip()
+                     
+                     data = json.loads(cleaned)
+                     
+                     # Map to standardized object (Cost might be 0 for some gen-ai, handle gracefully)
+                     final_obj = MinoRecommendation(
+                        recommended_model=data.get("recommended_model", "Unknown"),
+                        provider=data.get("provider", "Unknown"),
+                        confidence=data.get("confidence", "medium"),
+                        reasoning=data.get("reasoning", ""),
+                        cost_per_1k_input=data.get("cost_per_1k_input", 0),
+                        cost_per_1k_output=data.get("cost_per_1k_output", 0),
+                        estimated_monthly_cost=data.get("estimated_monthly_cost", 0),
+                        within_budget=data.get("within_budget", True),
+                        advantages=data.get("advantages", []),
+                        disadvantages=data.get("disadvantages", []),
+                        similar_models=data.get("similar_models", []),
+                        why_better=data.get("why_better", ""),
+                        use_case_fit=data.get("use_case_fit", ""),
+                        technical_specs=data.get("technical_specs", {})
+                     )
+                     yield {"type": "result", "data": final_obj.to_dict()}
+            
             except Exception as e:
-                yield {"type": "error", "message": str(e)}
+                yield {"type": "error", "message": f"Multimodal analysis failed: {str(e)}"}
             return
 
         # 2. Define Parallel Scouts
