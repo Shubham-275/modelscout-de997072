@@ -633,21 +633,21 @@ const Home = () => {
                                             <div className="space-y-2">
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-xs text-muted-foreground">Input (1K tokens)</span>
-                                                    <span className="font-mono text-sm text-foreground">${aiRecommendation.cost_analysis.per_1k_input_tokens.toFixed(4)}</span>
+                                                    <span className="font-mono text-sm text-foreground">${aiRecommendation.cost_analysis?.per_1k_input_tokens?.toFixed(4) || "0.0000"}</span>
                                                 </div>
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-xs text-muted-foreground">Output (1K tokens)</span>
-                                                    <span className="font-mono text-sm text-foreground">${aiRecommendation.cost_analysis.per_1k_output_tokens.toFixed(4)}</span>
+                                                    <span className="font-mono text-sm text-foreground">${aiRecommendation.cost_analysis?.per_1k_output_tokens?.toFixed(4) || "0.0000"}</span>
                                                 </div>
                                                 <div className="pt-2 border-t border-border/30">
                                                     <div className="flex justify-between items-center">
                                                         <span className="text-xs text-muted-foreground">Est. Monthly</span>
-                                                        <span className="font-mono text-xl font-bold text-primary">${aiRecommendation.cost_analysis.estimated_monthly_usd.toFixed(2)}</span>
+                                                        <span className="font-mono text-xl font-bold text-primary">${aiRecommendation.cost_analysis?.estimated_monthly_usd?.toFixed(2) || "0.00"}</span>
                                                     </div>
                                                     {/* Budget check */}
-                                                    <div className={`text-xs mt-1 text-right flex items-center justify-end gap-1 ${aiRecommendation.cost_analysis.within_budget ? 'text-green-400' : 'text-orange-400'}`}>
-                                                        {aiRecommendation.cost_analysis.within_budget ? <CheckIcon /> : <XIcon />}
-                                                        {aiRecommendation.cost_analysis.within_budget ? 'Within budget' : 'Over budget'}
+                                                    <div className={`text-xs mt-1 text-right flex items-center justify-end gap-1 ${aiRecommendation.cost_analysis?.within_budget ? 'text-green-400' : 'text-orange-400'}`}>
+                                                        {aiRecommendation.cost_analysis?.within_budget ? <CheckIcon /> : <XIcon />}
+                                                        {aiRecommendation.cost_analysis?.within_budget ? 'Within budget' : 'Over budget'}
                                                     </div>
                                                 </div>
                                             </div>
