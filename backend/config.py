@@ -25,16 +25,10 @@ MINO_API_KEY = os.environ.get("MINO_API_KEY")
 
 # Validate API key is set
 if not MINO_API_KEY:
-    raise ValueError(
-        "MINO_API_KEY environment variable is required but not set. "
-        "Please set MINO_API_KEY in your .env file or environment variables."
-    )
-
-if len(MINO_API_KEY) < 10:
-    raise ValueError(
-        "MINO_API_KEY appears to be invalid (too short). "
-        "Please check your API key configuration."
-    )
+    print("WARNING: MINO_API_KEY not set in .env. Mino Analyst features will be disabled.")
+    
+if MINO_API_KEY and len(MINO_API_KEY) < 10:
+    print("WARNING: MINO_API_KEY appears invalid (too short).")
 
 
 # =============================================================================
