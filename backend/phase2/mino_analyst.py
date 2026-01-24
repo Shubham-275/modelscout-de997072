@@ -800,9 +800,51 @@ Synthesize the following 4 scout reports into one final JSON benchmark report fo
 --- SCOUT REPORTS ---
 {results_text}
 
-                yield {"type": "error", "message": f"Aggregation failed: {e}"}
+--- INSTRUCTIONS ---
+- Aggregate the data into a clean, structured format.
+- resolving any conflicts (trust Academic Scout over Community Scout for numbers).
+- If specific numbers (MMLU, Elo) are found, include them. 
+- If not found, mention "Not available in search results".
+
+Return ONLY valid JSON matching:
+{{
+  "model_name": "{model_name}",
+  "overall_score": 0.0,
+  "metrics": {{
+    "mmlu": "00.0%",
+    "human_eval": "00.0%",
+    "math": "00.0%",
+    "elo_rating": "0000"
+  }},
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "consensus": "Summary of community and academic consensus...",
+  "sources": ["LMSYS", "Arxiv", "Reddit"]
+}}
+"""
+        yield {"type": "log", "message": "Aggregating intelligence from all scouts..."}
+        
+        # Use Synchronous call for safety
+        final_response = self._call_mino(aggregator_prompt)
+        
+        if final_response:
+            try:
+                # Cleanup markdown
+                cleaned = final_response.strip()
+                if "```" in cleaned:
+                    parts = cleaned.split("```")
+                    if len(parts) >= 2:
+                        cleaned = parts[1]
+                        if cleaned.startswith("json"):
+                             cleaned = cleaned[4:].strip()
+                
+                final_data = json.loads(cleaned)
+                yield {"type": "result", "data": final_data}
+                
+            except Exception as e:
+                yield {"type": "error", "message": f"Aggregation failed: {str(e)}"}
         else:
-            yield {"type": "log", "message": "Aggregator failed."}
+             yield {"type": "error", "message": "Aggregator returned empty response."}
 
     def generate_benchmark_report(self, model_name: str) -> Dict[str, Any]:
         """Generate a detailed benchmark report for a specific model."""
