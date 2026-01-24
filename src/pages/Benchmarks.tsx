@@ -245,7 +245,7 @@ const Benchmarks = () => {
 
             {/* Performance Categories - Compact Cards with Inline Stats */}
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {report.analysis.map((item, idx) => (
+              {(report.analysis || []).map((item, idx) => (
                 <Card
                   key={idx}
                   className="p-4 bg-card/40 border-border/50 hover:border-primary/30 transition-all cursor-pointer group"
@@ -295,7 +295,7 @@ const Benchmarks = () => {
                 <Zap className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
                 <div>
                   <h3 className="text-sm font-semibold mb-1 text-primary uppercase tracking-wide">Executive Summary</h3>
-                  <p className="text-sm text-foreground/80 leading-relaxed">{report.summary}</p>
+                  <p className="text-sm text-foreground/80 leading-relaxed">{report.summary || "No summary available."}</p>
                 </div>
               </div>
             </Card>
@@ -312,7 +312,7 @@ const Benchmarks = () => {
                   <table className="w-full text-sm">
                     <thead className="bg-muted/50 border-b border-border/50">
                       <tr>
-                        {report.benchmarks_table.headers.map((header, i) => (
+                        {(report.benchmarks_table?.headers || []).map((header, i) => (
                           <th
                             key={i}
                             className={`px-4 py-3 text-left font-semibold text-xs uppercase tracking-wider ${i === 0 ? "text-foreground sticky left-0 bg-muted/50" : "text-muted-foreground"
@@ -324,7 +324,7 @@ const Benchmarks = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/30">
-                      {report.benchmarks_table.rows.map((row, idx) => {
+                      {(report.benchmarks_table?.rows || []).map((row, idx) => {
                         const isTargetModel = idx === 0;
                         return (
                           <tr
@@ -332,7 +332,7 @@ const Benchmarks = () => {
                             className={`hover:bg-muted/20 transition-colors ${isTargetModel ? "bg-primary/5" : ""
                               }`}
                           >
-                            {report.benchmarks_table.headers.map((header, cellIdx) => {
+                            {(report.benchmarks_table?.headers || []).map((header, cellIdx) => {
                               const value = row[header] || row[Object.keys(row)[cellIdx]] || "-";
                               const isModelName = cellIdx === 0;
                               const isNumeric = !isNaN(parseFloat(value));

@@ -150,13 +150,13 @@ class MinoAnalyst:
         
         return True  # If we can't determine, allow it
     
-    def _call_mino(self, prompt: str) -> Optional[str]:
+    def _call_mino(self, prompt: str, url: str = "https://www.google.com") -> Optional[str]:
         """Call Mino API and return the response."""
         if not self.api_key:
             print("[MinoAnalyst] No API key configured!")
             return None
         
-        print(f"[MinoAnalyst] Calling Mino API...")
+        print(f"[MinoAnalyst] Calling Mino API with URL: {url}...")
         
         headers = {
             "X-API-Key": self.api_key,
@@ -165,7 +165,7 @@ class MinoAnalyst:
         
         payload = {
             "goal": prompt,
-            "url": "https://www.google.com",
+            "url": url,
             "stream": False
         }
         
@@ -785,11 +785,13 @@ Return ONLY valid JSON matching this exact structure:
         def run_scout(scout):
             name = scout["name"]
             prompt = scout["prompt"]
+            # Extract target URL if provided, defaulting to Google for wildcard behavior
+            target_url = scout.get("url", "https://www.google.com")
+            
             try:
-                q.put({"type": "log", "message": f"[{name}] Starting task..."})
-                # We use the NON-streaming call for individual scouts to get the full result easily
-                # but we could fake stream logs if we wanted. For simplicity, just get the result.
-                response = self._call_mino(prompt)
+                q.put({"type": "log", "message": f"[{name}] Starting task on {target_url}..."})
+                # Pass the explicit URL to _call_mino
+                response = self._call_mino(prompt, url=target_url)
                 q.put({"type": "log", "message": f"[{name}] Task completed."})
                 return {"name": name, "data": response}
             except Exception as e:
@@ -835,23 +837,27 @@ Return ONLY valid JSON matching this exact structure:
         yield {"type": "log", "message": f"Initializing Parallel Squad Protocol for {model_name}..."}
         yield {"type": "log", "message": "Spawning 4 concurrent agent processes..."}
         
-        # Define the 4 Scouts
+        # Define the 4 Scouts (Structured Aggregators Strategy)
         scouts = [
             {
                 "name": "Leaderboard Scout",
-                "prompt": f"Search LMSYS Chatbot Arena and OpenCompass leaderboards. Find the specific rankings and Elo scores for '{model_name}'. Return a JSON summary of its standing."
+                "url": "https://artificialanalysis.ai/leaderboards/models",
+                "prompt": f"Navigate to https://artificialanalysis.ai/leaderboards/models . Use the page search to find '{model_name}'. Extract 'Quality Score' (Elo equivalent) and Rank. FAIL FAST: If not found in 10s, return null."
             },
             {
                 "name": "Academic Scout",
-                "prompt": f"Search Arxiv and technical reports for '{model_name}'. Extract official benchmark numbers (MMLU, MATH, HumanEval) from the paper. Return JSON."
+                "url": f"https://paperswithcode.com/search?q={model_name}",
+                "prompt": f"Navigate to https://paperswithcode.com/search?q={model_name} . Look for 'Benchmarks' section or table in the first result. Extract MMLU/Math scores. FAIL FAST: Do not click into PDFs."
             },
             {
                 "name": "Coding Scout",
-                "prompt": f"Search LiveCodeBench, BigCode, and HumanEval rankings specifically for '{model_name}'. Focus on Python coding performance. Return JSON."
+                "url": "https://livecodebench.github.io/leaderboard.html",
+                "prompt": f"Navigate to https://livecodebench.github.io/leaderboard.html . Find '{model_name}' row. Extract Pass@1. FAIL FAST: Do not paginate. If not visible, return {{'{model_name}': 'Not Found'}}."
             },
             {
-                "name": "Community Scout",
-                "prompt": f"Search Reddit (r/LocalLLaMA), Hacker News, and GitHub Issues for '{model_name}'. Summarize the real-world sentiment, pros, and cons. DO NOT access Twitter/Instagram. Return JSON."
+                "name": "Wildcard Scout",
+                "url": "https://www.google.com",
+                "prompt": f"Navigate to https://www.google.com . Search for '{model_name} constraints' and '{model_name} reddit review'. Summarize top result."
             }
         ]
         
