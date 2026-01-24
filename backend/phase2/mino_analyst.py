@@ -842,7 +842,7 @@ Return ONLY valid JSON matching this exact structure:
             {
                 "name": "Leaderboard Scout",
                 "url": "https://artificialanalysis.ai/leaderboards/models",
-                "prompt": f"Navigate to https://artificialanalysis.ai/leaderboards/models . Use the page search to find '{model_name}'. Extract 'Quality Score' (Elo equivalent) and Rank. FAIL FAST: If not found in 10s, return null."
+                "prompt": f"Navigate to https://artificialanalysis.ai/leaderboards/models . Use the page search to find '{model_name}' (or closest variant). Extract 'Quality Score' (Elo equivalent) and Rank. FAIL FAST: If not found in 10s, return null."
             },
             {
                 "name": "Academic Scout",
@@ -852,7 +852,7 @@ Return ONLY valid JSON matching this exact structure:
             {
                 "name": "Coding Scout",
                 "url": "https://livecodebench.github.io/leaderboard.html",
-                "prompt": f"Navigate to https://livecodebench.github.io/leaderboard.html . Find '{model_name}' row. Extract Pass@1. FAIL FAST: Do not paginate. If not visible, return {{'{model_name}': 'Not Found'}}."
+                "prompt": f"Navigate to https://livecodebench.github.io/leaderboard.html . Find '{model_name}' or closest variant (e.g. version numbers). Extract Pass@1 and the *exact name* of the model found. FAIL FAST: If not visible, return {{'{model_name}': 'Not Found'}}."
             },
             {
                 "name": "Wildcard Scout",
