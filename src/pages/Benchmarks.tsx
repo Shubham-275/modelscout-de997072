@@ -38,6 +38,7 @@ const Benchmarks = () => {
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [report, setReport] = useState<BenchmarkReport | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
 
@@ -47,9 +48,11 @@ const Benchmarks = () => {
     setIsLoading(true);
     setError(null);
     setReport(null);
+    setLogs([]); // Clear logs
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v2/analyst/benchmarks`, {
+      // Use streaming endpoint
+      const response = await fetch(`${API_BASE_URL}/api/v2/analyst/benchmarks/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model_name: query }),
@@ -59,15 +62,46 @@ const Benchmarks = () => {
         throw new Error("Failed to fetch benchmark analysis");
       }
 
-      const data = await response.json();
-      if (data.report) {
-        setReport(data.report);
-      } else {
-        throw new Error("Invalid response format");
+      // Handle SSE Stream
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) throw new Error("Processing failed: No response body");
+
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.trim().startsWith('data: ')) {
+            const dataStr = line.trim().slice(6);
+            try {
+              const event = JSON.parse(dataStr);
+
+              if (event.type === 'log') {
+                setLogs(prev => [...prev, event.message]);
+              } else if (event.type === 'result') {
+                setReport(typeof event.data === 'string' ? JSON.parse(event.data) : event.data);
+              } else if (event.type === 'error') {
+                throw new Error(event.message);
+              }
+            } catch (e) {
+              console.warn("Failed to parse event:", dataStr);
+            }
+          }
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Failed to generate analysis. Please try again.");
+      setError(err.message || "Failed to generate analysis. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -135,6 +169,32 @@ const Benchmarks = () => {
         {error && (
           <div className="text-red-400 text-center mb-8 bg-red-900/10 p-4 rounded-lg border border-red-900/20 font-mono text-sm">
             {error}
+          </div>
+        )}
+
+        {isLoading && logs.length > 0 && (
+          <div className="mb-8 bg-black font-mono text-xs p-4 rounded-lg border border-primary/30 shadow-[0_0_20px_rgba(0,0,0,0.5)] h-48 overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-top-2 duration-300 relative group">
+            <div className="absolute top-2 right-2 flex gap-1.5 opacity-50 group-hover:opacity-100 transition-opacity">
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
+              <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
+              <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
+            </div>
+            <div className="flex items-center gap-2 mb-3 text-primary border-b border-primary/20 pb-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_10px_#22c55e]" />
+              <span className="font-bold tracking-wider">LIVE SQUAD LOGS (4 AGENTS ACTIVE)</span>
+              <span className="text-muted-foreground ml-auto pr-8">v2.4.0-squad</span>
+            </div>
+            <div className="space-y-1.5 font-mono">
+              {logs.map((log, i) => (
+                <div key={i} className="text-green-400/90 break-all pl-2 flex items-start gap-2 hover:bg-white/5 transition-colors rounded leading-relaxed">
+                  <span className="opacity-40 select-none shrink-0 text-[10px] mt-0.5">&gt;</span>
+                  <span>{log}</span>
+                </div>
+              ))}
+              <div className="flex items-center gap-2 pl-2">
+                <span className="text-green-500 animate-pulse">_</span>
+              </div>
+            </div>
           </div>
         )}
 
@@ -296,8 +356,8 @@ const Benchmarks = () => {
                                       <div className="w-full bg-muted/30 rounded-full h-1 overflow-hidden">
                                         <div
                                           className={`h-full rounded-full transition-all ${parseFloat(value) >= 90 ? "bg-green-400" :
-                                              parseFloat(value) >= 80 ? "bg-cyan-400" :
-                                                parseFloat(value) >= 70 ? "bg-yellow-400" : "bg-orange-400"
+                                            parseFloat(value) >= 80 ? "bg-cyan-400" :
+                                              parseFloat(value) >= 70 ? "bg-yellow-400" : "bg-orange-400"
                                             }`}
                                           style={{ width: `${getScoreBar(value)}%` }}
                                         />

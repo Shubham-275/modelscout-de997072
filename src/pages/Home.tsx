@@ -1,6 +1,6 @@
 /**
  * MODEL SCOUT - HOME PAGE (PHASE 2)
- * Simplified version with basic HTML inputs for reliability
+ * Advanced AI-Powered Recommendation Engine with Real-Time Streaming Logs & Hugging Face Search
  */
 
 import { useState } from "react";
@@ -101,6 +101,7 @@ const Home = () => {
     const [showComparison, setShowComparison] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [useAI, setUseAI] = useState(true); // Use AI by default
+    const [logs, setLogs] = useState<string[]>([]); // To store streaming logs
 
     const getTokensFromUsage = (level: string): number => {
         switch (level) {
@@ -119,6 +120,9 @@ const Home = () => {
 
         setIsLoading(true);
         setError(null);
+        setLogs([]);
+        setRecommendation(null);
+        setAiRecommendation(null);
 
         const requirements: UserRequirements = {
             use_case: useCase,
@@ -145,20 +149,63 @@ const Home = () => {
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
             }
 
-            const data = await response.json();
+            if (useAI) {
+                // Handle SSE Stream
+                const reader = response.body?.getReader();
+                const decoder = new TextDecoder();
 
-            if (useAI && data.recommendation) {
-                setAiRecommendation(data.recommendation);
-                setRecommendation(null);
-            } else if (data.recommendation) {
-                setRecommendation(data.recommendation);
-                setAiRecommendation(null);
+                if (!reader) throw new Error("Processing failed: No response body");
+
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    buffer += chunk;
+
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || ''; // Keep partial line in buffer
+
+                    for (const line of lines) {
+                        if (line.trim().startsWith('data: ')) {
+                            const dataStr = line.trim().slice(6);
+                            try {
+                                const event = JSON.parse(dataStr);
+
+                                if (event.type === 'log') {
+                                    setLogs(prev => [...prev, event.message]);
+                                } else if (event.type === 'result') {
+                                    // Parse result data if it's a string, otherwise use directly
+                                    const resultData = typeof event.data === 'string'
+                                        ? JSON.parse(event.data)
+                                        : event.data;
+                                    setAiRecommendation(resultData);
+                                } else if (event.type === 'error') {
+                                    throw new Error(event.message);
+                                }
+                            } catch (e) {
+                                console.warn("Failed to parse event:", dataStr);
+                            }
+                        }
+                    }
+                }
+
+            } else {
+                // Standard single fetch for legacy mode
+                const data = await response.json();
+                if (data.recommendation) {
+                    setRecommendation(data.recommendation);
+                }
             }
-        } catch (err) {
-            setError("Failed to get recommendation. Please try again.");
+
+        } catch (err: any) {
+            setError(err.message || "Failed to get recommendation");
             console.error(err);
         } finally {
             setIsLoading(false);
@@ -173,10 +220,10 @@ const Home = () => {
                 {/* Section 1: Hero - Clear Value Prop */}
                 <section className="text-center mb-12">
                     <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4 tracking-tight">
-                        Find the Right <span className="text-primary text-glow-cyber">AI Model</span>
+                        Find the Right <span className="text-primary text-glow-cyber">AI Model</span> with Realtime Data
                     </h1>
                     <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                        Get a clear recommendation based on your needs, not just benchmark rankings.
+                        Live search across benchmarks and Hugging Face to get the latest stats.
                     </p>
                 </section>
 
@@ -368,6 +415,36 @@ const Home = () => {
                                         </span>
                                     ) : "Get Recommendation"}
                                 </Button>
+
+                                {/* Streaming Logs Console */}
+                                {isLoading && logs.length > 0 && (
+                                    <div className="mt-6 bg-black font-mono text-xs p-4 rounded-lg border border-primary/30 shadow-[0_0_20px_rgba(0,0,0,0.5)] h-48 overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-top-2 duration-300 relative group">
+                                        <div className="absolute top-2 right-2 flex gap-1.5 opacity-50 group-hover:opacity-100 transition-opacity">
+                                            <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
+                                            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
+                                            <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
+                                        </div>
+                                        <div className="flex items-center gap-2 mb-3 text-primary border-b border-primary/20 pb-2">
+                                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_10px_#22c55e]" />
+                                            <span className="font-bold tracking-wider">LIVE AGENT LOGS</span>
+                                            <span className="text-muted-foreground ml-auto pr-8">v2.4.0-stream</span>
+                                        </div>
+                                        <div className="space-y-1.5 font-mono">
+                                            {logs.length === 0 && (
+                                                <div className="text-muted-foreground/50 italic animate-pulse">Waiting for input stream...</div>
+                                            )}
+                                            {logs.map((log, i) => (
+                                                <div key={i} className="text-green-400/90 break-all pl-2 flex items-start gap-2 hover:bg-white/5 transition-colors rounded leading-relaxed">
+                                                    <span className="opacity-40 select-none shrink-0 text-[10px] mt-0.5">&gt;</span>
+                                                    <span>{log}</span>
+                                                </div>
+                                            ))}
+                                            <div className="flex items-center gap-2 pl-2">
+                                                <span className="text-green-500 animate-pulse">_</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {error && (
                                     <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm flex items-center gap-2">

@@ -1,8 +1,9 @@
 
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response, stream_with_context
 from datetime import datetime
 import sqlite3
+import json
 import os
 
 from .prs import compute_prs, PRSComponents
@@ -716,6 +717,23 @@ def analyst_benchmarks():
         }), 500
 
 
+@phase2_api.route('/analyst/benchmarks/stream', methods=['POST'])
+def analyst_benchmarks_stream():
+    """Streaming endpoint for benchmark deep dive."""
+    data = request.json
+    if not data or 'model_name' not in data:
+        return jsonify({"error": "Missing model_name"}), 400
+        
+    model_name = data.get('model_name')
+    analyst = get_mino_analyst()
+    
+    def generate():
+        for event in analyst.generate_benchmark_report_stream(model_name):
+            yield f"data: {json.dumps(event)}\n\n"
+    
+    return Response(stream_with_context(generate()), content_type='text/event-stream')
+
+# Make sure this route is registered!
 @phase2_api.route('/analyst/recommend/ai', methods=['POST'])
 def analyst_recommend_ai():
     """
@@ -770,24 +788,34 @@ def analyst_recommend_ai():
     try:
         analyst = get_mino_analyst()
         
-        recommendation = analyst.recommend(
-            use_case=data.get("use_case", "General AI assistant"),
-            priorities=data.get("priorities", {}),
-            monthly_budget_usd=data.get("monthly_budget_usd"),
-            expected_tokens_per_month=data.get("expected_tokens_per_month")
-        )
+        def generate():
+            try:
+                # Initial log
+                yield f"data: {json.dumps({'type': 'log', 'message': 'Initializing Phase 2 Analyst...'})}\n\n"
+                
+                stream = analyst.recommend_stream(
+                    use_case=data.get("use_case", "General AI assistant"),
+                    priorities=data.get("priorities", {}),
+                    monthly_budget_usd=data.get("monthly_budget_usd"),
+                    expected_tokens_per_month=data.get("expected_tokens_per_month")
+                )
+                
+                for event in stream:
+                    # Format as SSE
+                    yield f"data: {json.dumps(event)}\n\n"
+                    
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
         
-        return jsonify({
-            "status": "success",
-            "powered_by": "Mino AI",
-            "recommendation": recommendation.to_dict(),
-            "user_requirements": {
-                "use_case": data.get("use_case"),
-                "priorities": data.get("priorities"),
-                "monthly_budget_usd": data.get("monthly_budget_usd"),
-                "expected_tokens_per_month": data.get("expected_tokens_per_month")
+        return Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no'
             }
-        })
+        )
     except Exception as e:
         import traceback
         traceback.print_exc()

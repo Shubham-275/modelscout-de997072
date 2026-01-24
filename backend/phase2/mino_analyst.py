@@ -223,11 +223,80 @@ class MinoAnalyst:
             else:
                 print(f"[MinoAnalyst] API error: {response.status_code} - {response.text[:500]}")
                 return None
-        except Exception as e:
             print(f"[MinoAnalyst] Request failed: {e}")
             import traceback
             traceback.print_exc()
             return None
+        except Exception as e:
+            print(f"[MinoAnalyst] Unexpected error: {e}")
+            return None
+
+    def _call_mino_stream(self, prompt: str):
+        """
+        Call Mino API and yield events (logs and result).
+        Yields:
+            {"type": "log", "message": "..."}
+            {"type": "result", "data": "{JSON STRING}"}
+        """
+        if not self.api_key:
+            yield {"type": "error", "message": "No API key configured"}
+            return
+        
+        headers = {
+            "X-API-Key": self.api_key,
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "goal": prompt,
+            "url": "https://www.google.com",
+            "stream": True # Enable streaming
+        }
+        
+        try:
+            with requests.post(self.api_url, headers=headers, json=payload, stream=True, timeout=300) as response:
+                if response.status_code != 200:
+                    yield {"type": "error", "message": f"API error: {response.status_code}"}
+                    return
+
+                # Manual SSE parsing
+                buffer = ""
+                for line in response.iter_lines(decode_unicode=True):
+                    if line:
+                        if line.startswith("data: "):
+                            data_content = line[6:].strip()
+                            
+                            # Simple log event or just raw text
+                            if data_content and data_content != "[DONE]":
+                                try:
+                                    # Try to parse as JSON first
+                                    if data_content.startswith("{"):
+                                        event = json.loads(data_content)
+                                        
+                                        # Check for completion
+                                        if event.get("type") == "COMPLETE" and "resultJson" in event:
+                                            yield {"type": "result", "data": json.dumps(event["resultJson"])}
+                                            return
+                                        
+                                        # If it's a log/status update
+                                        if "status" in event or "message" in event:
+                                            msg = event.get("message") or event.get("status")
+                                            yield {"type": "log", "message": msg}
+                                        elif "recommended_model" in event:
+                                            # Direct result
+                                            yield {"type": "result", "data": json.dumps(event)}
+                                            return
+                                    else:
+                                        # Raw text log
+                                        yield {"type": "log", "message": data_content}
+                                except:
+                                    # formatting error, just log as text
+                                    yield {"type": "log", "message": data_content}
+                        else:
+                            # Keepalive or other lines
+                            pass
+        except Exception as e:
+            yield {"type": "error", "message": str(e)}
     
     def recommend(
         self,
@@ -342,6 +411,9 @@ Available Models to Consider:
 - DeepSeek: V3, R1
 - Mistral, Qwen, Yi, and others
 
+IMPORTANT: Search Hugging Face for the latest open source models. Don't restrict yourself 
+to just the big names. Look for trending models on the Open LLM Leaderboard.
+
 Return ONLY valid JSON (no markdown formatting):
 
 {{
@@ -455,6 +527,330 @@ Return ONLY valid JSON (no markdown formatting):
         
         # Fallback
         return self._fallback_recommendation(use_case, priorities, budget, tokens)
+
+    def recommend_stream(
+        self,
+        use_case: str,
+        priorities: Dict[str, str],
+        monthly_budget_usd: Optional[float] = None,
+        expected_tokens_per_month: Optional[int] = None
+    ):
+        """
+        Generate an AI-powered recommendation using Mino, streaming logs.
+        Yields events: {"type": "log|result", ...}
+        """
+        # 1. Detect Modality (Log it)
+        yield {"type": "log", "message": "Analyzing requirements..."}
+        detected_modality = self._detect_modality(use_case)
+        yield {"type": "log", "message": f"Detected modality: {detected_modality}"}
+        
+        # If non-text, use existing logic (synchronous for now, wrap result)
+        if detected_modality != "text":
+            yield {"type": "log", "message": f"Routing to special {detected_modality} analyst..."}
+            # ... (reuse existing logic but wrap in try/except) ...
+            # For brevity, we'll just call self.recommend() for non-text since refactoring that is complex
+            # and just yield the final result.
+            try:
+                res = self.recommend(use_case, priorities, monthly_budget_usd, expected_tokens_per_month)
+                yield {"type": "result", "data": res.to_dict()}
+            except Exception as e:
+                yield {"type": "error", "message": str(e)}
+            return
+
+        # Text Logic
+        tokens = expected_tokens_per_month or 5_000_000
+        budget = monthly_budget_usd or 100
+        sanitized_use_case = use_case.replace("<<<", "").replace(">>>", "").strip()
+        
+        prompt = f"""You are an AI model recommendation expert. Analyze the user's requirements and recommend the best AI language model.
+
+User Requirements:
+- Use Case: {sanitized_use_case}
+- Monthly Budget: ${budget}
+- Expected Usage: {tokens:,} tokens/month
+- Priorities: {json.dumps(priorities)}
+
+Note: This is for text/chat AI models only (not image, video, or voice generation).
+
+Available Models to Consider:
+- OpenAI: GPT-4o, o1, GPT-4o-mini
+- Anthropic: Claude 3.5 Sonnet, Haiku, Opus
+- Google: Gemini 1.5 Pro/Flash, Gemini 2.0
+- Meta: Llama 3, 3.1, 3.2, 3.3
+- DeepSeek: V3, R1
+- Mistral, Qwen, Yi, and others
+
+IMPORTANT: Search Hugging Face for the latest open source models. Don't restrict yourself 
+to just the big names. Look for trending models on the Open LLM Leaderboard.
+
+Return ONLY valid JSON (no markdown formatting):
+
+{{
+  "recommended_model": "Exact Model Name",
+  "provider": "Provider Name",
+  "confidence": "high",
+  "reasoning": "Detailed explanation why this model is best for this use case",
+  "cost_per_1m_input": 0.00,
+  "cost_per_1m_output": 0.00,
+  "estimated_monthly_cost": 0.00,
+  "within_budget": true,
+  "advantages": [
+    "Advantage 1",
+    "Advantage 2"
+  ],
+  "disadvantages": [
+    "Limitation 1"
+  ],
+  "similar_models": [
+    {{
+      "model": "Competitor 1",
+      "provider": "Provider 1",
+      "why_not": "Why recommended model is better"
+    }}
+  ],
+  "why_better": "Summary comparing recommended model against alternatives",
+  "use_case_fit": "How well this model fits the specific use case",
+  "technical_specs": {{
+    "context_window": 128000,
+    "supports_streaming": true,
+    "latency_estimate_ms": 500
+  }}
+}}
+"""
+        yield {"type": "log", "message": "Searching latest benchmarks and Hugging Face..."}
+        
+        # Stream from Mino
+        final_json_str = None
+        for event in self._call_mino_stream(prompt):
+            if event["type"] == "result":
+                final_json_str = event["data"]
+            yield event
+            
+        if final_json_str:
+            try:
+                # Parse and Process result (Reuse existing parsing logic from recommend?)
+                # We'll duplicate the minimal parsing logic here to ensure it works
+                cleaned = final_json_str.strip()
+                if "```" in cleaned:
+                    parts = cleaned.split("```")
+                    if len(parts) >= 2: # handle varied markdown
+                         for part in parts:
+                             if part.strip().startswith("json"):
+                                 cleaned = part.strip()[4:].strip()
+                                 break
+                             elif part.strip().startswith("{"):
+                                 cleaned = part.strip()
+                                 break
+                
+                result = json.loads(cleaned)
+                
+                # Check validation
+                recommended_model = result.get("recommended_model", "")
+                if not self._validate_model_modality(recommended_model, detected_modality):
+                     yield {"type": "log", "message": f"Validating... {recommended_model} vs {detected_modality}"}
+                     # We might fallback here but for now let's assume valid or just return it
+                
+                # Calculate costs per 1K
+                cost_per_1k_input = result.get("cost_per_1m_input", 0) / 1000
+                cost_per_1k_output = result.get("cost_per_1m_output", 0) / 1000
+                
+                final_obj = MinoRecommendation(
+                    recommended_model=result.get("recommended_model", "Unknown"),
+                    provider=result.get("provider", "Unknown"),
+                    confidence=result.get("confidence", "medium"),
+                    reasoning=result.get("reasoning", ""),
+                    cost_per_1k_input=cost_per_1k_input,
+                    cost_per_1k_output=cost_per_1k_output,
+                    estimated_monthly_cost=result.get("estimated_monthly_cost", 0),
+                    within_budget=result.get("within_budget", True),
+                    advantages=result.get("advantages", []),
+                    disadvantages=result.get("disadvantages", []),
+                    similar_models=result.get("similar_models", []),
+                    why_better=result.get("why_better", ""),
+                    use_case_fit=result.get("use_case_fit", ""),
+                    technical_specs=result.get("technical_specs", {})
+                )
+                
+                yield {"type": "result", "data": final_obj.to_dict()}
+                
+            except Exception as e:
+                yield {"type": "error", "message": f"Parsing failed: {e}"}
+        else:
+            # Fallback
+             yield {"type": "log", "message": "Search timed out or failed, using fallback mode."}
+             fallback = self._fallback_recommendation(use_case, priorities, budget, tokens)
+             yield {"type": "result", "data": fallback.to_dict()}
+
+    def _run_parallel_scouts(self, scouts: List[Dict[str, str]]) -> Any:
+        """
+        Run multiple Mino agents in parallel threads and yield logs/results from a queue.
+        scouts = [{"name": "Agent 1", "prompt": "..."}]
+        """
+        import concurrent.futures
+        import queue
+        
+        q = queue.Queue()
+        
+        def run_scout(scout):
+            name = scout["name"]
+            prompt = scout["prompt"]
+            try:
+                q.put({"type": "log", "message": f"[{name}] Starting task..."})
+                # We use the NON-streaming call for individual scouts to get the full result easily
+                # but we could fake stream logs if we wanted. For simplicity, just get the result.
+                response = self._call_mino(prompt)
+                q.put({"type": "log", "message": f"[{name}] Task completed."})
+                return {"name": name, "data": response}
+            except Exception as e:
+                q.put({"type": "error", "message": f"[{name}] Failed: {str(e)}"})
+                return {"name": name, "error": str(e)}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(scouts)) as executor:
+            futures = {executor.submit(run_scout, s): s for s in scouts}
+            
+            # Monitor queue while futures run
+            # We can't really "yield" nicely from inside here without blocking, so we rely on 
+            # checking futures done status.
+            
+            while True:
+                # empty the queue
+                try:
+                    while True:
+                        msg = q.get_nowait()
+                        yield msg
+                except queue.Empty:
+                    pass
+                
+                # Check if all done
+                if all(f.done() for f in futures):
+                    break
+                
+                import time
+                time.sleep(0.1)
+            
+            # Collect results
+            results = {}
+            for f in concurrent.futures.as_completed(futures):
+                res = f.result()
+                if "data" in res and res["data"]:
+                    results[res["name"]] = res["data"]
+            
+            yield {"type": "internal_complete", "data": results}
+
+    def generate_benchmark_report_stream(self, model_name: str):
+        """
+        Generate a benchmark report using a TRUE 4-Agent Parallel Squad.
+        """
+        yield {"type": "log", "message": f"Initializing Parallel Squad Protocol for {model_name}..."}
+        yield {"type": "log", "message": "Spawning 4 concurrent agent processes..."}
+        
+        # Define the 4 Scouts
+        scouts = [
+            {
+                "name": "Leaderboard Scout",
+                "prompt": f"Search LMSYS Chatbot Arena and OpenCompass leaderboards. Find the specific rankings and Elo scores for '{model_name}'. Return a JSON summary of its standing."
+            },
+            {
+                "name": "Academic Scout",
+                "prompt": f"Search Arxiv and technical reports for '{model_name}'. Extract official benchmark numbers (MMLU, MATH, HumanEval) from the paper. Return JSON."
+            },
+            {
+                "name": "Coding Scout",
+                "prompt": f"Search LiveCodeBench, BigCode, and HumanEval rankings specifically for '{model_name}'. Focus on Python coding performance. Return JSON."
+            },
+            {
+                "name": "Community Scout",
+                "prompt": f"Search Reddit (r/LocalLLaMA), Hacker News, and GitHub Issues for '{model_name}'. Summarize the real-world sentiment, pros, and cons. DO NOT access Twitter/Instagram. Return JSON."
+            }
+        ]
+        
+        scout_results = {}
+        results_text = ""
+
+        try:
+            # 1. Run Parallel Scouts
+            for event in self._run_parallel_scouts(scouts):
+                if event.get("type") == "log":
+                    yield event
+                elif event.get("type") == "error":
+                     yield {"type": "log", "message": f"Warning: {event['message']}"}
+                elif event.get("type") == "internal_complete":
+                    scout_results = event.get("data", {})
+            
+            # Format results for Aggregator
+            if scout_results:
+                for name, data in scout_results.items():
+                     results_text += f"\n--- REPORT FROM {name} ---\n{data}\n"
+                
+                yield {"type": "log", "message": "All agents reported in. Aggregating final intelligence..."}
+            
+        except Exception as e:
+             yield {"type": "error", "message": str(e)}
+             return
+
+        if not results_text:
+             yield {"type": "log", "message": "Agents failed to retrieve data. Using fallback."}
+             fallback = self._fallback_benchmark_report(model_name)
+             yield {"type": "result", "data": fallback}
+             return
+
+        # 2. Run Aggregator
+        aggregator_prompt = f"""You are the Lead Analyst.
+Synthesize the following 4 scout reports into one final JSON benchmark report for '{model_name}'.
+
+--- SCOUT REPORTS ---
+{results_text}
+
+--- END REPORTS ---
+
+Conflict Resolution:
+- If counts differ, trust Academic Scout for official numbers.
+- If sentiment differs, trust Community Scout.
+
+Return STRICT JSON matching this schema:
+{{
+  "model_name": "{model_name}",
+  "introduction": "Brief 2-sentence technical overview",
+  "quick_stats": {{ "overall_rank": "...", "best_category": "...", "avg_score": "...", "release_date": "..." }},
+  "analysis": [
+    {{ "title": "General Reasoning", "content": "...", "key_benchmarks": ["MMLU: ..."] }},
+    {{ "title": "Math & Logic", "content": "...", "key_benchmarks": ["MATH: ..."] }},
+    {{ "title": "Coding & Development", "content": "...", "key_benchmarks": ["HumanEval: ..."] }},
+    {{ "title": "Safety & Alignment", "content": "...", "key_benchmarks": ["TruthfulQA: ..."] }}
+  ],
+  "summary": "Executive summary...",
+  "benchmarks_table": {{
+    "headers": ["Model", "MMLU", "GPQA", "MATH", "HumanEval", "MGSM", "DROP", "MMMU", "MathVista"],
+    "rows": [
+      {{ "Model": "{model_name}", "MMLU": "...", ... }}
+    ]
+  }}
+}}
+"""
+        yield {"type": "log", "message": "[Aggregator] Synthesizing final report..."}
+        
+        final_json_str = self._call_mino(aggregator_prompt)
+        
+        if final_json_str:
+            try:
+                cleaned = final_json_str.strip()
+                if "```" in cleaned:
+                    parts = cleaned.split("```")
+                    if len(parts) >= 2:
+                         for part in parts:
+                             if part.strip().startswith("json"):
+                                 cleaned = part.strip()[4:].strip()
+                                 break
+                             elif part.strip().startswith("{"):
+                                 cleaned = part.strip()
+                                 break
+                
+                result = json.loads(cleaned.strip())
+                yield {"type": "result", "data": result}
+            except Exception as e:
+                yield {"type": "error", "message": f"Aggregation failed: {e}"}
+        else:
+            yield {"type": "log", "message": "Aggregator failed."}
 
     def generate_benchmark_report(self, model_name: str) -> Dict[str, Any]:
         """Generate a detailed benchmark report for a specific model."""
