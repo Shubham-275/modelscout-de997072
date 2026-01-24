@@ -21,8 +21,12 @@ except ImportError:
         from config import MINO_API_KEY, MINO_API_URL
     except:
         import os
-        from dotenv import load_dotenv
-        load_dotenv()
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass # dotenv not available
+            
         MINO_API_KEY = os.environ.get("MINO_API_KEY", "")
         MINO_API_URL = os.environ.get("MINO_API_URL", "https://mino.ai/v1/automation/run-sse")
 
