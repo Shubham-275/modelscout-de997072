@@ -1106,6 +1106,56 @@ def analyst_documentation():
     })
 
 
+@phase2_api.route('/analyst/recommend/multimodal/stream', methods=['POST'])
+def analyst_recommend_multimodal_stream():
+    """
+    Get a multimodal model recommendation with streaming logs.
+    """
+    if not MULTIMODAL_ANALYST_AVAILABLE:
+        return jsonify({
+            "error": "Multimodal Analyst not available",
+            "message": "Multimodal analyst module failed to load"
+        }), 503
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing request body"}), 400
+    
+    # Validate modality (Lite check)
+    modality = data.get("modality", "").lower()
+    if modality not in ["image", "video", "voice", "3d"]:
+        return jsonify({"error": "Invalid modality"}), 400
+    
+    try:
+        analyst = MultimodalAnalyst()
+        requirements = MultimodalRequirements.from_dict(data)
+        
+        def generate():
+            try:
+                yield f"data: {json.dumps({'type': 'log', 'message': 'Initializing Multimodal Analyst...'})}\n\n"
+                
+                for event in analyst.recommend_stream(requirements):
+                    yield f"data: {json.dumps(event)}\n\n"
+                    
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        
+        return Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to start multimodal stream",
+            "message": str(e)
+        }), 500
+
+
 @phase2_api.route('/analyst/recommend/multimodal', methods=['POST'])
 def analyst_recommend_multimodal():
     """

@@ -323,6 +323,172 @@ Research the latest models and provide accurate, up-to-date information."""
         # Fallback
         return self._fallback_recommendation(modality, use_case, budget)
     
+    def recommend_stream(self, requirements: MultimodalRequirements):
+        """
+        Generate a multimodal model recommendation with streaming logs.
+        Yields:
+            Dict: {"type": "log|result|error", "message": str, "data": dict}
+        """
+        modality = requirements.modality.lower()
+        use_case = requirements.use_case
+        priorities = requirements.priorities
+        budget = requirements.monthly_budget_usd or 1000
+        usage = requirements.expected_usage_per_month or 1000
+        
+        # Build modality-specific context
+        modality_context = ""
+        if modality == "image":
+            modality_context = f"""
+MODALITY: IMAGE GENERATION
+User Requirements: {json.dumps(requirements.image_requirements) if requirements.image_requirements else 'None specified'}
+Expected Usage: {usage} images per month
+Pricing Unit: per image or subscription
+Key Metrics: image quality, prompt adherence, style diversity, resolution, generation time, safety filters
+"""
+        elif modality == "video":
+            modality_context = f"""
+MODALITY: VIDEO GENERATION
+User Requirements: {json.dumps(requirements.video_requirements) if requirements.video_requirements else 'None specified'}
+Expected Usage: {usage} seconds of video per month
+Pricing Unit: per second, per minute, or subscription
+Key Metrics: video quality, temporal consistency, motion realism, max duration, resolution, FPS
+"""
+        elif modality == "voice":
+            modality_context = f"""
+MODALITY: VOICE/AUDIO GENERATION
+User Requirements: {json.dumps(requirements.voice_requirements) if requirements.voice_requirements else 'None specified'}
+Expected Usage: {usage} characters per month
+Pricing Unit: per 1K characters or per 1M characters
+Key Metrics: voice naturalness, emotion range, language support, latency, voice cloning capability
+"""
+        elif modality == "3d":
+            modality_context = f"""
+MODALITY: 3D MODEL GENERATION
+User Requirements: {json.dumps(requirements.three_d_requirements) if requirements.three_d_requirements else 'None specified'}
+Expected Usage: {usage} 3D models per month
+Pricing Unit: per model or subscription
+Key Metrics: mesh quality, texture quality, polygon efficiency, generation time, rigging support
+"""
+        else:
+            yield {"type": "error", "message": f"Unsupported modality: {modality}"}
+            return
+
+        yield {"type": "log", "message": f"Analyst initialized for {modality.upper()} recommendation..."}
+        yield {"type": "log", "message": f"Analyzing requirements for use case: {use_case}..."}
+        
+        # Build Mino prompt (Same as recommend)
+        prompt = f"""You are an expert AI Model Analyst specializing in {modality.upper()} GENERATION models.
+
+{modality_context}
+
+USER REQUIREMENTS:
+- Use Case: {use_case}
+- Monthly Budget: ${budget}
+- Expected Usage: {usage} units/month
+- Priorities: {json.dumps(priorities)}
+
+YOUR TASK:
+1. Research and identify ALL available {modality} generation models (including latest releases from 2024-2026)
+2. Compare their pricing, performance benchmarks, and capabilities
+3. Recommend the SINGLE BEST model for this specific use case
+4. Provide 2-3 alternative options with reasons why they weren't chosen
+
+CRITICAL: Return ONLY valid JSON (no markdown formatting). Use this exact schema:
+
+{{
+  "recommended_model": "Exact Model Name",
+  "provider": "Provider Name",
+  "modality": "{modality}",
+  "confidence": "high",
+  "reasoning": "Detailed explanation (3-4 sentences) why this model is best for the use case.",
+  "pricing": {{
+    "per_image": 0.00,
+    "per_second": 0.00,
+    "per_1k_chars": 0.00,
+    "per_model": 0.00,
+    "subscription": 0.00,
+    "provider": "Provider Name"
+  }},
+  "benchmarks": {{
+    "strengths": ["Strength 1", "Strength 2", "Strength 3"],
+    "weaknesses": ["Weakness 1", "Weakness 2"],
+    "quality_score": 90,
+    "specific_metrics": {{}}
+  }},
+  "alternatives": [
+    {{
+      "model": "Alternative 1",
+      "provider": "Provider",
+      "reasons": ["Why not chosen reason 1", "Why not chosen reason 2"]
+    }},
+    {{
+      "model": "Alternative 2",
+      "provider": "Provider",
+      "reasons": ["Why not chosen"]
+    }}
+  ],
+  "estimated_monthly_cost": 0.00,
+  "within_budget": true
+}}
+
+Research the latest models and provide accurate, up-to-date information."""
+
+        # Stream Logic
+        if not self.api_key:
+            yield {"type": "error", "message": "API Key missing"}
+            return
+
+        yield {"type": "log", "message": f"Connecting to Mino Knowledge Grid..."}
+        
+        headers = {
+            "X-API-Key": self.api_key,
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "goal": prompt,
+            "url": "https://www.google.com",
+            "stream": True  # ENABLE STREAMING
+        }
+        
+        try:
+            yield {"type": "log", "message": f"Searching for latest {modality} models..."}
+            
+            with requests.post(self.api_url, headers=headers, json=payload, stream=True, timeout=300) as response:
+                if response.status_code != 200:
+                    yield {"type": "error", "message": f"API Error: {response.status_code}"}
+                    return
+
+                buffer = ""
+                for line in response.iter_lines():
+                    if line:
+                        decoded_line = line.decode('utf-8')
+                        if decoded_line.startswith("data: "):
+                            data_content = decoded_line[6:].strip()
+                            if data_content == "[DONE]":
+                                break
+                            
+                            try:
+                                event = json.loads(data_content)
+                                
+                                # Handle Logs
+                                if event.get("type") == "log":
+                                    yield {"type": "log", "message": event.get("message")}
+                                
+                                # Handle Completion
+                                elif event.get("type") == "COMPLETE" and "resultJson" in event:
+                                    yield {"type": "log", "message": "Analysis complete. Formatting report..."}
+                                    yield {"type": "result", "data": event["resultJson"]}
+                                    return
+                                    
+                            except json.JSONDecodeError:
+                                pass
+                            
+            yield {"type": "error", "message": "Stream ended without result."}
+
+        except Exception as e:
+            yield {"type": "error", "message": str(e)}
+
     def _fallback_recommendation(self, modality: str, use_case: str, budget: float) -> Dict[str, Any]:
         """Fallback recommendation if Mino API fails."""
         return {

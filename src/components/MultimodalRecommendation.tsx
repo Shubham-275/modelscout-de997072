@@ -144,6 +144,8 @@ export const MultimodalRecommendationForm = () => {
     const [recommendation, setRecommendation] = useState<MultimodalRecommendation | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [showAlternatives, setShowAlternatives] = useState(false);
+    const [logs, setLogs] = useState<string[]>([]);
+    const [statusMessage, setStatusMessage] = useState<string>("");
 
     const config = MODALITY_CONFIG[modality];
     const ModalityIcon = config.icon;
@@ -156,6 +158,9 @@ export const MultimodalRecommendationForm = () => {
 
         setIsLoading(true);
         setError(null);
+        setLogs([]);
+        setRecommendation(null);
+        setStatusMessage("Initializing Multimodal Analyst...");
 
         const requirements: MultimodalRequirements = {
             use_case: useCase,
@@ -196,7 +201,7 @@ export const MultimodalRecommendationForm = () => {
         }
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/v2/analyst/recommend/multimodal`, {
+            const response = await fetch(`${API_BASE_URL}/api/v2/analyst/recommend/multimodal/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requirements),
@@ -206,13 +211,44 @@ export const MultimodalRecommendationForm = () => {
                 throw new Error(`HTTP ${response.status}`);
             }
 
-            const data = await response.json();
-            setRecommendation(data.recommendation);
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error("Stream not supported");
+
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+
+                            if (data.type === 'log') {
+                                setLogs(prev => [...prev, data.message]);
+                                setStatusMessage(data.message);
+                            } else if (data.type === 'result') {
+                                setRecommendation(data.data);
+                            } else if (data.type === 'error') {
+                                setError(data.message);
+                            }
+                        } catch (e) {
+                            console.error("Error parsing SSE:", e);
+                        }
+                    }
+                }
+            }
+
         } catch (err) {
             setError("Failed to get recommendation. Please try again.");
             console.error(err);
         } finally {
             setIsLoading(false);
+            setStatusMessage("");
         }
     };
 
@@ -234,8 +270,8 @@ export const MultimodalRecommendationForm = () => {
                                 key={key}
                                 onClick={() => setModality(key)}
                                 className={`p-4 rounded-lg border-2 transition-all ${isSelected
-                                        ? `${cfg.borderColor} ${cfg.bgColor}`
-                                        : 'border-border/50 bg-background/50 hover:bg-background/80'
+                                    ? `${cfg.borderColor} ${cfg.bgColor}`
+                                    : 'border-border/50 bg-background/50 hover:bg-background/80'
                                     }`}
                             >
                                 <Icon className={`w-6 h-6 mx-auto mb-2 ${isSelected ? cfg.color : 'text-muted-foreground'}`} />
@@ -258,9 +294,9 @@ export const MultimodalRecommendationForm = () => {
                         </label>
                         <textarea
                             placeholder={`e.g., ${modality === 'image' ? 'Product images for e-commerce' :
-                                    modality === 'video' ? 'Short marketing videos for social media' :
-                                        modality === 'voice' ? 'Podcast narration with emotions' :
-                                            'Game-ready 3D assets for Unity'
+                                modality === 'video' ? 'Short marketing videos for social media' :
+                                    modality === 'voice' ? 'Podcast narration with emotions' :
+                                        'Game-ready 3D assets for Unity'
                                 }`}
                             value={useCase}
                             onChange={(e) => setUseCase(e.target.value)}
@@ -554,6 +590,44 @@ export const MultimodalRecommendationForm = () => {
                 </div>
             </Card>
 
+            {/* Live Agent Console */}
+            {(isLoading || logs.length > 0) && !recommendation && (
+                <Card className="p-0 overflow-hidden border-primary/30 bg-black/90 shadow-[0_0_30px_rgba(6,182,212,0.15)] animate-in fade-in zoom-in-95 duration-300">
+                    <div className="flex items-center justify-between px-4 py-2 bg-primary/10 border-b border-primary/20">
+                        <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-red-500" />
+                            <div className="w-2 h-2 rounded-full bg-yellow-500" />
+                            <div className="w-2 h-2 rounded-full bg-green-500" />
+                            <span className="ml-2 text-xs font-mono text-primary/70 uppercase tracking-widest">
+                                MINO_AGENT_LIVE_FEED :: {modality.toUpperCase()}_ANALYST
+                            </span>
+                        </div>
+                        {isLoading && (
+                            <span className="flex items-center gap-2 text-xs font-mono text-primary animate-pulse">
+                                <span className="w-1.5 h-1.5 bg-primary rounded-full" />
+                                PROCESSING_STREAM
+                            </span>
+                        )}
+                    </div>
+                    <div className="p-4 font-mono text-xs md:text-sm h-64 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
+                        {logs.map((log, i) => (
+                            <div key={i} className="flex items-start gap-3 text-primary/80 animate-in slide-in-from-left-2 duration-300">
+                                <span className="opacity-50 select-none">[{new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}]</span>
+                                <span className="flex-1">
+                                    <span className="text-primary mr-2">➜</span>
+                                    {log}
+                                </span>
+                            </div>
+                        ))}
+                        {isLoading && (
+                            <div className="flex items-center gap-1 text-primary/50 animate-pulse ml-[6.5rem]">
+                                <span className="w-1 h-4 bg-primary/50" />
+                            </div>
+                        )}
+                    </div>
+                </Card>
+            )}
+
             {/* Results */}
             {recommendation && (
                 <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
@@ -572,8 +646,8 @@ export const MultimodalRecommendationForm = () => {
                                         by {recommendation.provider}
                                     </span>
                                     <span className={`px-2 py-0.5 rounded text-xs font-mono uppercase ${recommendation.confidence === 'high'
-                                            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                                            : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                                        ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                                        : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
                                         }`}>
                                         {recommendation.confidence} confidence
                                     </span>
