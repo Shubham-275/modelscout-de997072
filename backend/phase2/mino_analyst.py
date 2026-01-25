@@ -837,30 +837,76 @@ Return ONLY valid JSON matching this exact structure:
         yield {"type": "log", "message": f"Initializing Parallel Squad Protocol for {model_name}..."}
         yield {"type": "log", "message": "Spawning 4 concurrent agent processes..."}
         
-        # Define the 4 Scouts (Structured Aggregators Strategy)
-        # CHANGED: Switched to Bing Search to bypass Google Captcha/Bot Detection
-        scouts = [
-            {
-                "name": "Leaderboard Scout",
-                "url": f"https://www.bing.com/search?q=site:artificialanalysis.ai+{model_name}+quality+score+elo",
-                "prompt": f"Navigate to Bing results for '{model_name}' on ArtificialAnalysis. Read the text snippets/summaries on this page ONLY. Do NOT click any links. Extract 'Quality Score' (Elo) and Rank from the text. Return JSON."
-            },
-            {
-                "name": "Academic Scout",
-                "url": f"https://www.bing.com/search?q=site:paperswithcode.com+{model_name}+benchmark+results+mmlu",
-                "prompt": f"Navigate to Bing results for '{model_name}' on PapersWithCode. Read the text snippets on this page ONLY. Do NOT click any links. Extract MMLU, Math, or other benchmark scores mentioned in the descriptions. Return JSON."
-            },
-            {
-                "name": "Coding Scout",
-                "url": "https://livecodebench.github.io/leaderboard.html",
-                "prompt": f"Navigate to https://livecodebench.github.io/leaderboard.html . Find '{model_name}' or closest variant (e.g. version numbers). Extract Pass@1 and the *exact name* of the model found. FAIL FAST: If not visible, return {{'{model_name}': 'Not Found'}}."
-            },
-            {
-                "name": "Wildcard Scout",
-                "url": "https://www.bing.com/search?q=" + model_name + "+review+reddit",
-                "prompt": f"Navigate to Bing Search. Search for '{model_name} constraints' and '{model_name} reddit review'. Summarize top result."
-            }
-        ]
+        # 1. Detect Modality for Benchmarks (Heuristic)
+        model_lower = model_name.lower()
+        if any(x in model_lower for x in ["diffusion", "dall-e", "midjourney", "flux", "imagen", "firefly"]):
+            modality = "image"
+        elif any(x in model_lower for x in ["sora", "runway", "pika", "video"]):
+            modality = "video"
+        elif any(x in model_lower for x in ["tts", "voice", "audio", "speech", "elevenlabs"]):
+            modality = "voice"
+        else:
+            modality = "text" # Default to LLM
+            
+        yield {"type": "log", "message": f"Detected Model Modality: {modality.upper()}"}
+        
+        # Define Modality-Specific Scouts
+        scouts = []
+        
+        if modality == "image":
+            scouts = [
+                {
+                    "name": "Image Quality Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+FID+score+CLIP+score+benchmark",
+                    "prompt": f"Search for '{model_name} FID score' and 'CLIP score'. Extract any quantitative metrics found (FID, CLIP, IS). Return JSON."
+                },
+                {
+                    "name": "Speed/Memory Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+vram+requirements+generation+speed",
+                    "prompt": f"Search for '{model_name} VRAM usage' and 'seconds per image'. Return JSON."
+                },
+                 {
+                    "name": "Community Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+reddit+review+vs+midjourney",
+                    "prompt": f"Search for user comparisons of {model_name} vs Midjourney/Flux. Summarize consensus. Return JSON."
+                }
+            ]
+        elif modality == "text":
+            scouts = [
+                {
+                    "name": "Leaderboard Scout",
+                    "url": f"https://www.bing.com/search?q=site:artificialanalysis.ai+{model_name}+quality+score+elo",
+                    "prompt": f"Navigate to Bing results for '{model_name}' on ArtificialAnalysis. Read snippets. Extract 'Quality Score' (Elo) and Rank. Return JSON."
+                },
+                {
+                    "name": "Academic Scout",
+                    "url": f"https://www.bing.com/search?q=site:paperswithcode.com+{model_name}+benchmark+results+mmlu",
+                    "prompt": f"Navigate to Bing results for '{model_name}' on PapersWithCode. Extract MMLU, Math, HumanEval scores. Return JSON."
+                },
+                {
+                    "name": "Coding Scout",
+                    "url": "https://livecodebench.github.io/leaderboard.html",
+                    "prompt": f"Check LiveCodeBench for '{model_name}'. Extract Pass@1. Return {{'{model_name}': 'Not Found'}} if missing."
+                },
+                {
+                    "name": "Wildcard Scout",
+                    "url": "https://www.bing.com/search?q=" + model_name + "+review+reddit",
+                    "prompt": f"Search for '{model_name} constraints' and '{model_name} reddit review'. Summarize top result."
+                }
+            ]
+        else: # Video/Voice/Other - Generic Fallback
+             scouts = [
+                {
+                    "name": "Tech Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+benchmark+performance+metrics",
+                    "prompt": f"Search for ANY performance metrics for {model_name}. Look for 'FVD' (Video) or 'WER' (Audio). Return JSON."
+                },
+                 {
+                    "name": "Review Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+review+pros+cons",
+                    "prompt": f"Search for pros and cons of {model_name}. Return JSON."
+                }
+             ]
         
         scout_results = {}
         results_text = ""
