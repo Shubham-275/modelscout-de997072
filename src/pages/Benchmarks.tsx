@@ -89,7 +89,45 @@ const Benchmarks = () => {
               if (event.type === 'log') {
                 setLogs(prev => [...prev, event.message]);
               } else if (event.type === 'result') {
-                setReport(typeof event.data === 'string' ? JSON.parse(event.data) : event.data);
+                let reportData = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+
+                // Normalization for Streamed Data (Aggregator Format)
+                if (!reportData.analysis && !reportData.benchmarks_table && reportData.metrics) {
+                  reportData = {
+                    model_name: reportData.model_name,
+                    introduction: reportData.consensus || "Analysis complete.",
+                    summary: reportData.consensus,
+                    quick_stats: {
+                      avg_score: reportData.overall_score > 0 ? reportData.overall_score.toString() : "N/A",
+                      overall_rank: "Top Tier", // Placeholder or derived
+                      best_category: "General Capabilities",
+                      release_date: "2024-2025"
+                    },
+                    analysis: [
+                      {
+                        title: "Strengths & Advantages",
+                        content: (reportData.strengths || []).join(". "),
+                        key_benchmarks: []
+                      },
+                      {
+                        title: "Weaknesses & Limitations",
+                        content: (reportData.weaknesses || []).join(". "),
+                        key_benchmarks: []
+                      }
+                    ],
+                    benchmarks_table: {
+                      headers: ["Model", ...Object.keys(reportData.metrics)],
+                      rows: [
+                        {
+                          "Model": reportData.model_name,
+                          ...reportData.metrics
+                        }
+                      ]
+                    }
+                  };
+                }
+
+                setReport(reportData);
               } else if (event.type === 'error') {
                 throw new Error(event.message);
               }
