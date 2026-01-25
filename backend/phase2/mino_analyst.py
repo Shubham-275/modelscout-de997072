@@ -938,34 +938,85 @@ Return ONLY valid JSON matching this exact structure:
              yield {"type": "result", "data": fallback}
              return
 
-        # 2. Run Aggregator (Final Synthesis)
+        # 2. Run Aggregator (Final Synthesis) - Modality Aware
+        if modality == "image":
+             target_schema = """{
+  "model_name": "{model_name}",
+  "overall_score": 0.0,
+  "metrics": {
+    "FID": "0.0 (lower is better)",
+    "CLIP_Score": "0.0",
+    "Inception_Score": "0.0",
+    "VRAM_Usage": "00GB"
+  },
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "consensus": "Summary...",
+  "sources": ["Bing", "HuggingFace", "Reddit"]
+}"""
+             instructions = "Focus on visual quality metrics like FID and CLIP. Extract VRAM usage if found."
+        
+        elif modality == "video":
+             target_schema = """{
+  "model_name": "{model_name}",
+  "overall_score": 0.0,
+  "metrics": {
+    "FVD": "0.0 (lower is better)",
+    "CLIPSIM": "0.0",
+    "Generation_Speed": "0.0 fps"
+  },
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "consensus": "Summary...",
+  "sources": ["Bing", "Runway", "Reddit"]
+}"""
+             instructions = "Focus on temporal consistency and generation speed metrics."
+
+        elif modality == "voice":
+             target_schema = """{
+  "model_name": "{model_name}",
+  "overall_score": 0.0,
+  "metrics": {
+    "WER": "0.0% (Word Error Rate)",
+    "MCD": "0.0 (Mel Cepstral Distortion)",
+    "Latency": "00ms"
+  },
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "consensus": "Summary...",
+  "sources": ["Bing", "HuggingFace", "Reddit"]
+}"""
+             instructions = "Focus on audio clarity, naturalness, and latency."
+
+        else: # TEXT LLM Default
+             target_schema = """{
+  "model_name": "{model_name}",
+  "overall_score": 0.0,
+  "metrics": {
+    "mmlu": "00.0%",
+    "human_eval": "00.0%",
+    "math": "00.0%",
+    "elo_rating": "0000"
+  },
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "consensus": "Summary...",
+  "sources": ["LMSYS", "Arxiv", "Reddit"]
+}"""
+             instructions = "If specific numbers (MMLU, Elo) are found, include them. If not, use 'N/A'."
+
         aggregator_prompt = f"""You are the Lead Analyst.
-Synthesize the following 4 scout reports into one final JSON benchmark report for '{model_name}'.
+Synthesize the following scout reports into one final JSON benchmark report for '{model_name}'.
 
 --- SCOUT REPORTS ---
 {results_text}
 
 --- INSTRUCTIONS ---
 - Aggregate the data into a clean, structured format.
-- resolving any conflicts (trust Academic Scout over Community Scout for numbers).
-- If specific numbers (MMLU, Elo) are found, include them. 
-- If not found, mention "Not available in search results".
+- {instructions}
 
 Return ONLY valid JSON matching:
-{{
-  "model_name": "{model_name}",
-  "overall_score": 0.0,
-  "metrics": {{
-    "mmlu": "00.0%",
-    "human_eval": "00.0%",
-    "math": "00.0%",
-    "elo_rating": "0000"
-  }},
-  "strengths": ["..."],
-  "weaknesses": ["..."],
-  "consensus": "Summary of community and academic consensus...",
-  "sources": ["LMSYS", "Arxiv", "Reddit"]
-}}
+{target_schema}
 """
         yield {"type": "log", "message": "Aggregating intelligence from all scouts..."}
         
