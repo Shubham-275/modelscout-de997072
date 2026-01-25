@@ -838,16 +838,17 @@ Return ONLY valid JSON matching this exact structure:
         yield {"type": "log", "message": "Spawning 4 concurrent agent processes..."}
         
         # Define the 4 Scouts (Structured Aggregators Strategy)
+        # CHANGED: Switched to Bing Search to bypass Google Captcha/Bot Detection
         scouts = [
             {
                 "name": "Leaderboard Scout",
-                "url": f"https://www.google.com/search?q=site:artificialanalysis.ai+{model_name}+quality+score+elo",
-                "prompt": f"Navigate to Google results for '{model_name}' on ArtificialAnalysis. Read the text snippets/summaries on this page ONLY. Do NOT click any links. Extract 'Quality Score' (Elo) and Rank from the text. Return JSON."
+                "url": f"https://www.bing.com/search?q=site:artificialanalysis.ai+{model_name}+quality+score+elo",
+                "prompt": f"Navigate to Bing results for '{model_name}' on ArtificialAnalysis. Read the text snippets/summaries on this page ONLY. Do NOT click any links. Extract 'Quality Score' (Elo) and Rank from the text. Return JSON."
             },
             {
                 "name": "Academic Scout",
-                "url": f"https://www.google.com/search?q=site:paperswithcode.com+{model_name}+benchmark+results+mmlu",
-                "prompt": f"Navigate to Google results for '{model_name}' on PapersWithCode. Read the text snippets on this page ONLY. Do NOT click any links. Extract MMLU, Math, or other benchmark scores mentioned in the descriptions. Return JSON."
+                "url": f"https://www.bing.com/search?q=site:paperswithcode.com+{model_name}+benchmark+results+mmlu",
+                "prompt": f"Navigate to Bing results for '{model_name}' on PapersWithCode. Read the text snippets on this page ONLY. Do NOT click any links. Extract MMLU, Math, or other benchmark scores mentioned in the descriptions. Return JSON."
             },
             {
                 "name": "Coding Scout",
@@ -856,8 +857,8 @@ Return ONLY valid JSON matching this exact structure:
             },
             {
                 "name": "Wildcard Scout",
-                "url": "https://www.google.com",
-                "prompt": f"Navigate to https://www.google.com . Search for '{model_name} constraints' and '{model_name} reddit review'. Summarize top result."
+                "url": "https://www.bing.com/search?q=" + model_name + "+review+reddit",
+                "prompt": f"Navigate to Bing Search. Search for '{model_name} constraints' and '{model_name} reddit review'. Summarize top result."
             }
         ]
         
