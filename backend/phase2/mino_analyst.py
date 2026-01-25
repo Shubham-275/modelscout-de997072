@@ -854,24 +854,88 @@ Return ONLY valid JSON matching this exact structure:
         scouts = []
         
         if modality == "image":
+            # Image Squad: Quality, Speed, Comparison, Theory
             scouts = [
                 {
-                    "name": "Image Quality Scout",
-                    "url": f"https://www.bing.com/search?q={model_name}+FID+score+CLIP+score+benchmark",
-                    "prompt": f"Search for '{model_name} FID score' and 'CLIP score'. Extract any quantitative metrics found (FID, CLIP, IS). Return JSON."
+                    "name": "Quality Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+FID+score+CLIP+score+benchmark+visual+quality",
+                    "prompt": f"Search for quantitative visual quality metrics for '{model_name}': FID (Fréchet Inception Distance), CLIP Score, Inception Score. Extract numbers. Return JSON."
                 },
                 {
-                    "name": "Speed/Memory Scout",
-                    "url": f"https://www.bing.com/search?q={model_name}+vram+requirements+generation+speed",
-                    "prompt": f"Search for '{model_name} VRAM usage' and 'seconds per image'. Return JSON."
+                    "name": "Efficiency Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+vram+usage+inference+speed+benchmark",
+                    "prompt": f"Search for computational requirements for '{model_name}': VRAM usage (GB), Inference Speed (it/s or sec/image), recommended GPU. Return JSON."
                 },
                  {
-                    "name": "Community Scout",
-                    "url": f"https://www.bing.com/search?q={model_name}+reddit+review+vs+midjourney",
-                    "prompt": f"Search for user comparisons of {model_name} vs Midjourney/Flux. Summarize consensus. Return JSON."
+                    "name": "Versus Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+vs+Midjourney+v6+vs+Flux.1+review",
+                    "prompt": f"Find comparisons of '{model_name}' against top competitors (Midjourney, Flux, DALL-E 3). Summarize key differentiators (better prompts? realism? text rendering?). Return JSON."
+                },
+                {
+                    "name": "Theory Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+architecture+parameter+count+technical+report",
+                    "prompt": f"Find technical details for '{model_name}': Architecture type (DiT vs UNet), Parameter count, Training dataset size. Return JSON."
+                }
+            ]
+        elif modality == "video":
+            # Video Squad: Motion, Tech, Comparison
+            scouts = [
+                {
+                    "name": "Motion Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+FVD+score+temporal+consistency+benchmark",
+                    "prompt": f"Search for motion quality metrics for '{model_name}': FVD (Fréchet Video Distance), temporal consistency, motion smoothness. Return JSON."
+                },
+                {
+                    "name": "Tech Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+fps+resolution+max+duration+generation+time",
+                    "prompt": f"Search for technical specs for '{model_name}': Max resolution, Frames Per Second (FPS), Max video duration, Generation time. Return JSON."
+                },
+                {
+                    "name": "Versus Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+vs+Runway+Gen-3+vs+Sora+vs+Pika",
+                    "prompt": f"Compare '{model_name}' vs Runway/Sora/Pika. Focus on realism, physics adherence, and prompt adherence. Return JSON."
+                }
+            ]
+        elif modality == "voice":
+            # Voice Squad: Audio, Expressiveness, Comparison
+            scouts = [
+                {
+                    "name": "Audio Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+WER+MCD+audio+fidelity+benchmark",
+                    "prompt": f"Search for audio quality metrics for '{model_name}': WER (Word Error Rate), MCD (Mel Cepstral Distortion), Sample Rate (44.1kHz?). Return JSON."
+                },
+                {
+                    "name": "Expressiveness Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+emotional+control+prosody+latency+tts",
+                    "prompt": f"Search for capabilities of '{model_name}': Emotional control, Prosody features, Real-time Latency (ms). Return JSON."
+                },
+                 {
+                    "name": "Versus Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+vs+ElevenLabs+vs+OpenAI+Voice",
+                    "prompt": f"Compare '{model_name}' vs ElevenLabs/OpenAI. Focus on naturalness, clone speed, and cost. Return JSON."
+                }
+            ]
+        elif modality == "3d":
+            # 3D Squad: Geometry, Texture, Comparison
+            scouts = [
+                {
+                    "name": "Geometry Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+mesh+quality+poly+count+topology",
+                    "prompt": f"Search for geometry quality of '{model_name}': Mesh topology (quads vs tris), Poly count, Wireframe quality. Return JSON."
+                },
+                 {
+                    "name": "Texture Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+texture+resolution+UV+mapping+quality",
+                    "prompt": f"Search for texture capabilities of '{model_name}': Texture resolution (2k/4k), PBR maps support, UV unwrapping quality. Return JSON."
+                },
+                {
+                    "name": "Versus Scout",
+                    "url": f"https://www.bing.com/search?q={model_name}+vs+Meshy+vs+Luma+Genie",
+                    "prompt": f"Compare '{model_name}' vs Meshy/Luma/Rodin. Focus on generation speed and asset usability in game engines. Return JSON."
                 }
             ]
         elif modality == "text":
+            # Text Squad (Existing)
             scouts = [
                 {
                     "name": "Leaderboard Scout",
@@ -894,7 +958,7 @@ Return ONLY valid JSON matching this exact structure:
                     "prompt": f"Search for '{model_name} constraints' and '{model_name} reddit review'. Summarize top result."
                 }
             ]
-        else: # Video/Voice/Other - Generic Fallback
+        else: # Generic Fallback for unknown modalities
              scouts = [
                 {
                     "name": "Tech Scout",
