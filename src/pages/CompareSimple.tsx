@@ -6,11 +6,12 @@
  */
 
 import { useState, useMemo } from "react";
-import { ArrowLeft, Check, Zap, Brain, Code, BookOpen, Clock } from "lucide-react";
+import { ArrowLeft, Check, Zap, Brain, Code, BookOpen, Clock, Terminal, Banknote, ArrowRightLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     Table,
     TableBody,
@@ -263,6 +264,35 @@ const ComparePage = () => {
 
                 {comparison && (
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {/* TOP ROW: Migration Arbitrage (New Feature) */}
+                        <div className="lg:col-span-12">
+                            <Card className="bg-gradient-to-r from-emerald-950/30 to-background border-emerald-500/30 p-6">
+                                <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-3 bg-emerald-500/20 rounded-full text-emerald-500">
+                                            <Banknote className="w-6 h-6" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-foreground">Migration Arbitrage</h3>
+                                            <p className="text-sm text-muted-foreground">
+                                                Switching from <span className="text-primary font-bold">{MODEL_SPECS[modelA]?.name}</span> to <span className="text-cyan-500 font-bold">{MODEL_SPECS[modelB]?.name}</span>
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* The Hard Math */}
+                                    <div className="text-right">
+                                        <p className="text-xs uppercase tracking-widest text-muted-foreground font-bold">Projected Savings</p>
+                                        <p className="text-3xl font-mono font-bold text-emerald-400">
+                                            {/* Simple logic: if B is cheaper than A, show savings based on 10M tokens (approx workflow) */}
+                                            ${Math.max(0, (getCost(modelA) - getCost(modelB)) * 10).toFixed(2)}
+                                            <span className="text-sm font-sans font-normal text-muted-foreground ml-1">/mo (at 10M tokens)</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            </Card>
+                        </div>
+
                         {/* LEFT COLUMN: Visuals & Specs (8 cols) */}
                         <div className="lg:col-span-8 space-y-8">
 
@@ -369,6 +399,73 @@ const ComparePage = () => {
                                         </li>
                                     ))}
                                 </ul>
+                            </Card>
+
+                            {/* Developer Handoff (New Feature) */}
+                            <Card className="p-0 overflow-hidden border-border bg-card/40">
+                                <div className="bg-muted/50 p-3 border-b border-border flex items-center gap-2">
+                                    <Terminal className="w-4 h-4 text-muted-foreground" />
+                                    <span className="text-xs font-mono font-bold text-muted-foreground uppercase">Integration Config: {MODEL_SPECS[modelB]?.name}</span>
+                                </div>
+                                <Tabs defaultValue="python" className="w-full">
+                                    <TabsList className="w-full justify-start rounded-none bg-transparent border-b border-border/50 h-auto p-0">
+                                        <TabsTrigger value="python" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3 px-6">Python</TabsTrigger>
+                                        <TabsTrigger value="typescript" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3 px-6">TypeScript</TabsTrigger>
+                                        <TabsTrigger value="curl" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3 px-6">cURL</TabsTrigger>
+                                    </TabsList>
+
+                                    <TabsContent value="python" className="p-6 font-mono text-xs text-blue-300 bg-[#0d1117] overflow-x-auto">
+                                        <pre>{`from openai import OpenAI
+
+# Recommended Configuration for ${MODEL_SPECS[modelB]?.name}
+client = OpenAI(
+    base_url="${MODEL_SPECS[modelB]?.provider === 'DeepSeek' ? 'https://api.deepseek.com' : 'https://api.openai.com/v1'}",
+    api_key="YOUR_API_KEY"
+)
+
+response = client.chat.completions.create(
+    model="${modelB}",
+    messages=[{"role": "user", "content": "Hello world"}],
+    temperature=0.7,
+    max_tokens=${MODEL_SPECS[modelB]?.maxOutput.replace('k', '000')}
+)`}</pre>
+                                    </TabsContent>
+                                    <TabsContent value="typescript" className="p-6 font-mono text-xs text-blue-300 bg-[#0d1117] overflow-x-auto">
+                                        <pre>{`import OpenAI from 'openai';
+
+// Recommended Configuration for ${MODEL_SPECS[modelB]?.name}
+const client = new OpenAI({
+  baseURL: "${MODEL_SPECS[modelB]?.provider === 'DeepSeek' ? 'https://api.deepseek.com' : 'https://api.openai.com/v1'}",
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+const response = await client.chat.completions.create({
+  model: "${modelB}",
+  messages: [{ role: 'user', content: 'Hello world' }],
+  temperature: 0.7,
+  max_tokens: ${MODEL_SPECS[modelB]?.maxOutput.replace('k', '000')}
+});`}</pre>
+                                    </TabsContent>
+                                    <TabsContent value="curl" className="p-6 font-mono text-xs text-blue-300 bg-[#0d1117] overflow-x-auto">
+                                        <pre>{`curl ${MODEL_SPECS[modelB]?.provider === 'DeepSeek' ? 'https://api.deepseek.com/chat/completions' : 'https://api.openai.com/v1/chat/completions'} \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer $OPENAI_API_KEY" \\
+  -d '{
+    "model": "${modelB}",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful assistant."
+      },
+      {
+        "role": "user",
+        "content": "Hello!"
+      }
+    ],
+    "temperature": 0.7
+  }'`}</pre>
+                                    </TabsContent>
+                                </Tabs>
                             </Card>
                         </div>
 
