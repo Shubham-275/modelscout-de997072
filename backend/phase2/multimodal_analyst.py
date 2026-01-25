@@ -93,13 +93,10 @@ class MultimodalAnalyst:
         self.api_url = MINO_API_URL
         self.data_timestamp = datetime.utcnow().isoformat()
     
-    def _call_mino(self, prompt: str) -> Optional[str]:
+    def _call_mino(self, prompt: str, url: str = "https://www.google.com") -> Optional[str]:
         """Call Mino API and return the response."""
         if not self.api_key:
-            print("[MultimodalAnalyst] No API key configured!")
             return None
-        
-        print(f"[MultimodalAnalyst] Calling Mino API...")
         
         headers = {
             "X-API-Key": self.api_key,
@@ -108,7 +105,7 @@ class MultimodalAnalyst:
         
         payload = {
             "goal": prompt,
-            "url": "https://www.google.com",
+            "url": url,
             "stream": False
         }
         
@@ -120,13 +117,10 @@ class MultimodalAnalyst:
                 timeout=300
             )
             
-            print(f"[MultimodalAnalyst] Response status: {response.status_code}")
-            
             if response.status_code == 200:
                 # Check for SSE
                 content_type = response.headers.get("Content-Type", "")
                 if "text/event-stream" in content_type:
-                    print("[MultimodalAnalyst] Parsing SSE response...")
                     # Parse data: lines
                     for line in response.text.splitlines():
                         if line.startswith("data: "):
@@ -135,21 +129,14 @@ class MultimodalAnalyst:
                                 try:
                                     if data_content.startswith("{"):
                                         event = json.loads(data_content)
-                                        
                                         # Check for completion event
                                         if event.get("type") == "COMPLETE" and "resultJson" in event:
-                                            print("[MultimodalAnalyst] Found COMPLETE event with result!")
                                             return json.dumps(event["resultJson"])
-                                            
                                         # Also handle case where it might be a direct result
                                         if "recommended_model" in event:
                                             return json.dumps(event)
-                                except json.JSONDecodeError:
+                                except:
                                     pass
-                                except Exception as e:
-                                    print(f"[MultimodalAnalyst] Error parsing SSE line: {e}")
-                    
-                    print("[MultimodalAnalyst] SSE stream finished but no COMPLETE event found.")
                     return None
                 
                 # Try standard JSON
@@ -157,23 +144,64 @@ class MultimodalAnalyst:
                     data = response.json()
                     if "result" in data:
                         return data["result"]
-                    # If it returns direct JSON structure of the answer
                     if "recommended_model" in data:
                         return json.dumps(data)
                 except:
-                    # Return raw text if json fails
                     return response.text
-
-                print(f"[MultimodalAnalyst] No recognized result format.")
                 return None
             else:
-                print(f"[MultimodalAnalyst] API error: {response.status_code} - {response.text[:500]}")
                 return None
         except Exception as e:
             print(f"[MultimodalAnalyst] Request failed: {e}")
-            import traceback
-            traceback.print_exc()
             return None
+
+    def _run_parallel_scouts(self, scouts: List[Dict[str, str]]) -> Any:
+        """
+        Run multiple Mino agents in parallel threads and yield logs/results from a queue.
+        """
+        import concurrent.futures
+        import queue
+        
+        q = queue.Queue()
+        
+        def run_scout(scout):
+            name = scout["name"]
+            prompt = scout["prompt"]
+            target_url = scout.get("url", "https://www.bing.com")
+            
+            try:
+                q.put({"type": "log", "message": f"[{name}] Searching {target_url}..."})
+                response = self._call_mino(prompt, url=target_url)
+                q.put({"type": "log", "message": f"[{name}] Analysis complete."})
+                return {"name": name, "data": response}
+            except Exception as e:
+                q.put({"type": "error", "message": f"[{name}] Failed: {str(e)}"})
+                return {"name": name, "error": str(e)}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(scouts)) as executor:
+            futures = {executor.submit(run_scout, s): s for s in scouts}
+            
+            while True:
+                try:
+                    while True:
+                        msg = q.get_nowait()
+                        yield msg
+                except queue.Empty:
+                    pass
+                
+                if all(f.done() for f in futures):
+                    break
+                
+                import time
+                time.sleep(0.1)
+            
+            results = {}
+            for f in concurrent.futures.as_completed(futures):
+                res = f.result()
+                if "data" in res and res["data"]:
+                    results[res["name"]] = res["data"]
+            
+            yield {"type": "internal_complete", "data": results}
     
     
     def recommend(self, requirements: MultimodalRequirements) -> Dict[str, Any]:
@@ -325,169 +353,175 @@ Research the latest models and provide accurate, up-to-date information."""
     
     def recommend_stream(self, requirements: MultimodalRequirements):
         """
-        Generate a multimodal model recommendation with streaming logs.
-        Yields:
-            Dict: {"type": "log|result|error", "message": str, "data": dict}
+        Generate a multimodal model recommendation with streaming logs using Functional Squads.
         """
         modality = requirements.modality.lower()
         use_case = requirements.use_case
         priorities = requirements.priorities
         budget = requirements.monthly_budget_usd or 1000
         usage = requirements.expected_usage_per_month or 1000
+
+        yield {"type": "log", "message": f"Initializing Functional Squad for {modality.upper()} recommendation..."}
         
-        # Build modality-specific context
-        modality_context = ""
+        # 1. Define Scouts based on Modality
+        scouts = []
         if modality == "image":
-            modality_context = f"""
-MODALITY: IMAGE GENERATION
-User Requirements: {json.dumps(requirements.image_requirements) if requirements.image_requirements else 'None specified'}
-Expected Usage: {usage} images per month
-Pricing Unit: per image or subscription
-Key Metrics: image quality, prompt adherence, style diversity, resolution, generation time, safety filters
-"""
+            scouts = [
+                {
+                    "name": "Quality Analyst",
+                    "url": "https://www.bing.com/search?q=best+image+generation+models+2025+benchmark+quality",
+                    "prompt": f"Identify top 3 image models for '{use_case}'. focus on visual quality (FID, realism). Return JSON summary."
+                },
+                {
+                    "name": "Pricing Analyst",
+                    "url": "https://www.bing.com/search?q=ai+image+generator+pricing+comparison+2025",
+                    "prompt": f"Find pricing for top image models (Midjourney, DALL-E 3, Flux, Adobe Firefly). Cost per image? Subscription? Return JSON."
+                },
+                {
+                    "name": "Review Analyst",
+                    "url": "https://www.bing.com/search?q=reddit+stable+diffusion+vs+midjourney+v6+review",
+                    "prompt": f"Find user consensus on Midjourney vs Stable Diffusion vs Flux. Pros/Cons for '{use_case}'. Return JSON."
+                }
+            ]
         elif modality == "video":
-            modality_context = f"""
-MODALITY: VIDEO GENERATION
-User Requirements: {json.dumps(requirements.video_requirements) if requirements.video_requirements else 'None specified'}
-Expected Usage: {usage} seconds of video per month
-Pricing Unit: per second, per minute, or subscription
-Key Metrics: video quality, temporal consistency, motion realism, max duration, resolution, FPS
-"""
+            scouts = [
+                {
+                    "name": "Motion Analyst",
+                    "url": "https://www.bing.com/search?q=best+ai+video+generator+2025+temporal+consistency",
+                    "prompt": f"Identify top video models (Sora, Runway Gen-3, Pika, Luma). Focus on motion smoothness and consistency. Return JSON."
+                },
+                {
+                    "name": "Tech Analyst",
+                    "url": "https://www.bing.com/search?q=ai+video+generation+max+duration+resolution+comparison",
+                    "prompt": f"Compare specs: Max duration, Resolution (1080p/4K), FBS. Return JSON."
+                },
+                {
+                    "name": "Pricing Analyst",
+                    "url": "https://www.bing.com/search?q=runway+ml+pricing+vs+pika+labs+subscription+cost",
+                    "prompt": f"Find pricing models for Runway, Pika, Luma. Cost per second? Return JSON."
+                }
+            ]
         elif modality == "voice":
-            modality_context = f"""
-MODALITY: VOICE/AUDIO GENERATION
-User Requirements: {json.dumps(requirements.voice_requirements) if requirements.voice_requirements else 'None specified'}
-Expected Usage: {usage} characters per month
-Pricing Unit: per 1K characters or per 1M characters
-Key Metrics: voice naturalness, emotion range, language support, latency, voice cloning capability
-"""
+            scouts = [
+                {
+                    "name": "Audio Analyst",
+                    "url": "https://www.bing.com/search?q=best+ai+voice+cloning+model+2025+quality",
+                    "prompt": f"Identify top voice models (ElevenLabs, OpenAI, PlayHT). Focus on realism and cloning speed. Return JSON."
+                },
+                {
+                    "name": "Feature Analyst",
+                    "url": "https://www.bing.com/search?q=elevenlabs+vs+playht+features+emotions+latency",
+                    "prompt": f"Compare features: Emotional control, low latency (real-time), language support. Return JSON."
+                },
+                {
+                    "name": "Cost Analyst",
+                    "url": "https://www.bing.com/search?q=ai+tts+pricing+comparison+per+character",
+                    "prompt": f"Compare pricing for ElevenLabs, Azure, OpenAI. Cost per 1k chars? Return JSON."
+                }
+            ]
         elif modality == "3d":
-            modality_context = f"""
-MODALITY: 3D MODEL GENERATION
-User Requirements: {json.dumps(requirements.three_d_requirements) if requirements.three_d_requirements else 'None specified'}
-Expected Usage: {usage} 3D models per month
-Pricing Unit: per model or subscription
-Key Metrics: mesh quality, texture quality, polygon efficiency, generation time, rigging support
-"""
+            scouts = [
+                {
+                    "name": "Mesh Analyst",
+                    "url": "https://www.bing.com/search?q=best+ai+3d+model+generator+2025+topology",
+                    "prompt": f"Identify top 3D models (Meshy, Luma Genie, Rodin). Focus on mesh topology and UV quality. Return JSON."
+                },
+                {
+                    "name": "Speed Analyst",
+                    "url": "https://www.bing.com/search?q=fastest+ai+3d+asset+generator+benchmark",
+                    "prompt": f"Compare generation speed. Which tools are distinctively faster? Return JSON."
+                },
+                {
+                    "name": "Integration Analyst",
+                    "url": "https://www.bing.com/search?q=ai+3d+model+generator+game+engine+workflow+compatibility",
+                    "prompt": f"Check compatibility with Unity/Unreal/Blender. Export formats (GLB, OBJ, FBX). Return JSON."
+                }
+            ]
         else:
-            yield {"type": "error", "message": f"Unsupported modality: {modality}"}
-            return
+             yield {"type": "error", "message": f"Unsupported modality: {modality}"}
+             return
 
-        yield {"type": "log", "message": f"Analyst initialized for {modality.upper()} recommendation..."}
-        yield {"type": "log", "message": f"Analyzing requirements for use case: {use_case}..."}
+        scout_results = {}
+        results_text = ""
         
-        # Build Mino prompt (Same as recommend)
-        prompt = f"""You are an expert AI Model Analyst specializing in {modality.upper()} GENERATION models.
+        # 2. Run Parallel Scouts
+        for event in self._run_parallel_scouts(scouts):
+             if event.get("type") == "log":
+                 yield event
+             elif event.get("type") == "internal_complete":
+                 scout_results = event.get("data", {})
+        
+        # Format for Aggregator
+        for name, data in scout_results.items():
+             results_text += f"\n--- REPORT FROM {name} ---\n{data}\n"
+        
+        if not results_text:
+             yield {"type": "log", "message": "Scouts failed to return data. Using fallback."}
+             fallback = self._fallback_recommendation(modality, use_case, budget)
+             yield {"type": "result", "data": fallback}
+             return
 
-{modality_context}
+        # 3. Final Synthesis
+        yield {"type": "log", "message": "Synthesizing intelligence to formulate recommendation..."}
+        
+        aggregator_prompt = f"""You are the Lead Solutions Architect.
+Synthesize the following research reports to recommend the BEST {modality} model for this user.
 
 USER REQUIREMENTS:
 - Use Case: {use_case}
-- Monthly Budget: ${budget}
-- Expected Usage: {usage} units/month
+- Budget: ${budget}
+- Usage: {usage} units/mo
 - Priorities: {json.dumps(priorities)}
 
-YOUR TASK:
-1. Research and identify ALL available {modality} generation models (including latest releases from 2024-2026)
-2. Compare their pricing, performance benchmarks, and capabilities
-3. Recommend the SINGLE BEST model for this specific use case
-4. Provide 2-3 alternative options with reasons why they weren't chosen
+RESEARCH REPORTS:
+{results_text}
 
-CRITICAL: Return ONLY valid JSON (no markdown formatting). Use this exact schema:
+Calculate the estimated monthly cost based on the Pricing Analyst report and Usage.
 
+Return ONLY valid JSON:
 {{
   "recommended_model": "Exact Model Name",
   "provider": "Provider Name",
   "modality": "{modality}",
   "confidence": "high",
-  "reasoning": "Detailed explanation (3-4 sentences) why this model is best for the use case.",
+  "reasoning": "Detailed explanation...",
   "pricing": {{
-    "per_image": 0.00,
-    "per_second": 0.00,
-    "per_1k_chars": 0.00,
-    "per_model": 0.00,
+    "per_unit": 0.00,
     "subscription": 0.00,
-    "provider": "Provider Name"
+    "details": "..."
   }},
   "benchmarks": {{
-    "strengths": ["Strength 1", "Strength 2", "Strength 3"],
-    "weaknesses": ["Weakness 1", "Weakness 2"],
+    "strengths": ["..."],
+    "weaknesses": ["..."],
     "quality_score": 90,
     "specific_metrics": {{}}
   }},
   "alternatives": [
-    {{
-      "model": "Alternative 1",
-      "provider": "Provider",
-      "reasons": ["Why not chosen reason 1", "Why not chosen reason 2"]
-    }},
-    {{
-      "model": "Alternative 2",
-      "provider": "Provider",
-      "reasons": ["Why not chosen"]
-    }}
+    {{ "model": "Alt 1", "reasons": ["..."] }}
   ],
   "estimated_monthly_cost": 0.00,
-  "within_budget": true
+  "within_budget": true,
+  "sources": ["Bing", "Reddit"]
 }}
-
-Research the latest models and provide accurate, up-to-date information."""
-
-        # Stream Logic
-        if not self.api_key:
-            yield {"type": "error", "message": "API Key missing"}
-            return
-
-        yield {"type": "log", "message": f"Connecting to Mino Knowledge Grid..."}
+"""
+        final_response = self._call_mino(aggregator_prompt, url="https://www.google.com")
         
-        headers = {
-            "X-API-Key": self.api_key,
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "goal": prompt,
-            "url": "https://www.google.com",
-            "stream": True  # ENABLE STREAMING
-        }
-        
-        try:
-            yield {"type": "log", "message": f"Searching for latest {modality} models..."}
-            
-            with requests.post(self.api_url, headers=headers, json=payload, stream=True, timeout=300) as response:
-                if response.status_code != 200:
-                    yield {"type": "error", "message": f"API Error: {response.status_code}"}
-                    return
-
-                buffer = ""
-                for line in response.iter_lines():
-                    if line:
-                        decoded_line = line.decode('utf-8')
-                        if decoded_line.startswith("data: "):
-                            data_content = decoded_line[6:].strip()
-                            if data_content == "[DONE]":
-                                break
-                            
-                            try:
-                                event = json.loads(data_content)
-                                
-                                # Handle Logs
-                                if event.get("type") == "log":
-                                    yield {"type": "log", "message": event.get("message")}
-                                
-                                # Handle Completion
-                                elif event.get("type") == "COMPLETE" and "resultJson" in event:
-                                    yield {"type": "log", "message": "Analysis complete. Formatting report..."}
-                                    yield {"type": "result", "data": event["resultJson"]}
-                                    return
-                                    
-                            except json.JSONDecodeError:
-                                pass
-                            
-            yield {"type": "error", "message": "Stream ended without result."}
-
-        except Exception as e:
-            yield {"type": "error", "message": str(e)}
+        if final_response:
+            try:
+                cleaned = final_response.strip()
+                if "```" in cleaned:
+                    parts = cleaned.split("```")
+                    if len(parts) >= 2:
+                        cleaned = parts[1]
+                        if cleaned.startswith("json"):
+                             cleaned = cleaned[4:].strip()
+                
+                final_data = json.loads(cleaned)
+                yield {"type": "result", "data": final_data}
+            except Exception as e:
+                yield {"type": "error", "message": f"Synthesis failed: {e}"}
+        else:
+             yield {"type": "error", "message": "Synthesis returned empty response."}
 
     def _fallback_recommendation(self, modality: str, use_case: str, budget: float) -> Dict[str, Any]:
         """Fallback recommendation if Mino API fails."""
